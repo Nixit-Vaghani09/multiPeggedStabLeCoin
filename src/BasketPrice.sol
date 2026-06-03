@@ -14,7 +14,7 @@ contract BasketPrice{
         feedWeights[feed]=weight;
     }
 
-    function getBaketPrice() public view returns(uint256){
+    function getBasketPrice() public view returns(uint256){
         uint256 total;
         uint256 weightSum;
         for(uint i=0;i<basketFeeds.length;i++)

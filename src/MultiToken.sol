@@ -6,7 +6,7 @@ pragma solidity ^0.8.0;
 //////////////////////////
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-
+import {BasketPrice} from "src/BasketPrice.sol";
 
 
 contract MultiToken is ERC20,Ownable {
@@ -16,14 +16,14 @@ contract MultiToken is ERC20,Ownable {
     error MultiToken__ZeroAddress();
     error MultiToken__AmountMustBeGreaterThanZero();
     error MultiToken__AmountExceedsBalance();
-    
-    
+    BasketPrice private basket;
     
     
     
     constructor() ERC20("MultiToken","MTK") Ownable(msg.sender){
-
-    }
+        basket=new BasketPrice();
+    
+        }
 
     function mint(address to,uint256 amount) public onlyOwner returns(bool){
         if(to == address(0)){
@@ -81,5 +81,11 @@ contract MultiToken is ERC20,Ownable {
             revert MultiToken__AmountExceedsBalance();
         }
         return super.transferFrom(from,to,amount);
+    }
+
+
+
+    function _getTokenPrice() public view returns(uint256 ){
+        return basket.getBasketPrice();
     }
 }
