@@ -31,7 +31,7 @@ contract MTKEngine {
     } 
 
     function deposit(address collateral,uint256 collateralAmount) public {
-        if(collateralAmount<0)
+        if(collateralAmount<=0)
         {
             revert MTKEngine__AmountMustBeMoreThanZero();
         }
@@ -57,7 +57,7 @@ contract MTKEngine {
     }
 
     function withdraw(uint256 burnAmount,address collateral) external {
-        if(burnAmount<0)
+        if(burnAmount<=0)
         {
             revert MTKEngine__AmountMustBeGreaterThanZero();
         }
@@ -74,7 +74,7 @@ contract MTKEngine {
         uint256 collateralPrice = helperConfig.getCollateralPrice(collateral);
         uint256 collateralReturn = usdValue *1e18/ collateralPrice;
 
-        if(userCollateralBalance[msg.sender][collateral] >= collateralReturn) 
+        if(userCollateralBalance[msg.sender][collateral] < collateralReturn) 
         {
             revert MTKEngine__NotEnoughCollateralBalance();
         }

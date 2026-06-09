@@ -16,8 +16,10 @@ contract BasketPriceTest is Test{
     function testaddFeed() external {
         address priceFeed = makeAddr("ethpricefeed");
         basket.addFeed(priceFeed,40);
-        assertEq(basket.basketFeeds[0],priceFeed);
-        assertEq(basket.feedWeights[priceFeed],40);
+        address basketPriceFeed = basket.getPriceFeed(0);
+        assertEq(basketPriceFeed,priceFeed);
+        uint256 weight = basket.getFeedWeight(basketPriceFeed);
+        assertEq(weight,40);
     }
 
     function testgetBasketPrice() external {

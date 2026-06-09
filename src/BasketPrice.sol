@@ -15,24 +15,35 @@ contract BasketPrice{
     }
 
     function getBasketPrice() public view returns(uint256){
-        uint256 total;
-        uint256 weightSum;
+        uint256 total=0;
+        uint256 weightSum=0;
         for(uint i=0;i<basketFeeds.length;i++)
         {
-            uint256 price=_getPrice(i);
+            (uint256 price,uint8 decimals)=_getPrice(i);
+            price =price * (1e18/10**decimals);
             total+=uint256(price)*feedWeights[basketFeeds[i]];
-            weightSum=feedWeights[basketFeeds[i]];
+            weightSum+=feedWeights[basketFeeds[i]];
         }
         return total/weightSum;
     }
-    function _getPrice(uint256 index) internal view returns(uint256){
+    function _getPrice(uint256 index) internal view returns(uint256,uint8){
             (,int256 price,,,) = AggregatorV3Interface(basketFeeds[index]).latestRoundData();
-            return uint256(price);    
+            uint8 decimals = AggregatorV3Interface(basketFeeds[index]).decimals();
+            return (uint256(price),decimals);    
     }
 
     function changeWeight(address feed,uint256 weight) external {
         feedWeights
         [feed]=weight;
+    }
+
+
+    function getPriceFeed(uint256 index) external view returns(address) {
+        return basketFeeds[index];
+    }
+
+    function getFeedWeight(address priceFeed) external view returns(uint256) {
+        return feedWeights[priceFeed];
     }
 
 }

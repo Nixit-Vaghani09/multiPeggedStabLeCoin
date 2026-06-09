@@ -146,10 +146,11 @@ contract MultiTokenTest is Test {
     function testReturnsTrueIfTransferFromSuccessful() external {
         address user2=makeAddr("user2");
         token.mint(user,AMOUNT);
-        vm.startPrank(user);
-        
+        vm.prank(user);
+        token.approve(address(this),0.01 ether);
         bool value=token.transferFrom(user,user2,0.01 ether);
         assertEq(value,true);
+       
     }
 
 }
