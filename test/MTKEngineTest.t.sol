@@ -29,7 +29,7 @@ contract MTKEngineTest is Test {
         helperConfig = new HelperConfig();
         mockV3Aggregator = new MockV3Aggregator(8,2000e8);
         helperConfig.addConfig(address(collateral),address(mockV3Aggregator));
-        mtkEngine = new MTKEngine(address(basketPrice),address(multiToken),address(collateral),address(helperConfig));
+        mtkEngine = new MTKEngine(address(basketPrice),address(multiToken),address(helperConfig));
         multiToken.transferOwnership(address(mtkEngine));
         basketPrice.addFeed(address(mockV3Aggregator),100);
         collateral.mint(user,STARTING_BALANCE);
@@ -116,7 +116,7 @@ contract MTKEngineTest is Test {
 
     function testWithdrawRevertsOnZeroBurnAmount() public {
         vm.startPrank(user);
-        vm.expectRevert(MTKEngine.MTKEngine__AmountMustBeGreaterThanZero.selector);
+        vm.expectRevert(MTKEngine.MTKEngine__AmountMustBeMoreThanZero.selector);
         mtkEngine.withdraw(0, address(collateral));
         vm.stopPrank();
     }
