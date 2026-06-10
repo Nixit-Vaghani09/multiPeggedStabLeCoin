@@ -87,4 +87,4 @@ Contracts, features, and documentation may change as the project evolves.
 ## Contact
 For questions, feedback, or collaboration, feel free to reach out:
 
-Email-id : [Email Me](retrascout09@gmail.com)
+Email-id : (retrascout09@gmail.com)
