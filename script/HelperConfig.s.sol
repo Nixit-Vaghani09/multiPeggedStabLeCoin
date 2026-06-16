@@ -9,15 +9,15 @@ contract HelperConfig is Script {
     error HelperConfig__CollateralDoesntExsist();
     error HelperConfig__PriceMustBeGreateThanZero();
 
-    event CollateralAdded(address collateral, address pricefeed);
+    event CollateralAdded(uint256 chainId,address collateral, address pricefeed);
 
-    struct collateralConfig {
+    struct CollateralConfig {
         address priceFeed;
         uint8 decimals;
         bool allowed;
     }
 
-    mapping(address => collateralConfig) public collateralConfigs;
+    mapping(uint256 chainId => mapping(address => CollateralConfig)) private collateralConfigs;
 
     //would be an onlyowner
     function addConfig(address collateral, address pricefeed) public {
@@ -26,44 +26,45 @@ contract HelperConfig is Script {
         }
 
         uint8 collateralDecimals = AggregatorV3Interface(pricefeed).decimals();
-        collateralConfigs[collateral] = collateralConfig({
+        uint256 chainId = block.chainid;
+        collateralConfigs[chainId][collateral] = CollateralConfig({
             priceFeed: pricefeed,
             decimals: collateralDecimals,
             allowed: true
         });
-        emit CollateralAdded(collateral, pricefeed);
+        emit CollateralAdded(chainId,collateral, pricefeed);
     }
 
     function getNormalizedPrice(address collateral) internal returns (uint256) {
-        if (collateralConfigs[collateral].allowed == false) {
+        if (collateralConfigs[block.chainid][collateral].allowed == false) {
             revert HelperConfig__CollateralDoesntExsist();
         }
 
         (, int256 price, , , ) = AggregatorV3Interface(
-            collateralConfigs[collateral].priceFeed
+            collateralConfigs[block.chainid][collateral].priceFeed
         ).latestRoundData();
         if (price <= 0) {
             revert HelperConfig__PriceMustBeGreateThanZero();
         }
-        uint256 decimal = collateralConfigs[collateral].decimals;
+        uint256 decimal = collateralConfigs[block.chainid][collateral].decimals;
         return uint256(price) * (1e18 / 10 ** decimal);
     }
 
     function getFeed(
         address collateral
     ) external view returns (address, uint8) {
-        if (collateralConfigs[collateral].allowed == false) {
+        if (collateralConfigs[block.chainid][collateral].allowed == false) {
             revert HelperConfig__CollateralDoesntExsist();
         }
 
         return (
-            collateralConfigs[collateral].priceFeed,
-            collateralConfigs[collateral].decimals
+            collateralConfigs[block.chainid][collateral].priceFeed,
+            collateralConfigs[block.chainid][collateral].decimals
         );
     }
 
     function getCollateralPrice(address collateral) external returns (uint256) {
-        collateralConfig memory config = collateralConfigs[collateral];
+        CollateralConfig memory config = collateralConfigs[block.chainid][collateral];
         if (config.allowed == false) {
             revert HelperConfig__CollateralDoesntExsist();
         }
@@ -72,8 +73,8 @@ contract HelperConfig is Script {
     }
 
     function getCollateralAllowed(
-        address collateral
+        uint256 chainId,address collateral
     ) external view returns (bool) {
-        return collateralConfigs[collateral].allowed;
+        return collateralConfigs[chainId][collateral].allowed;
     }
 }

@@ -31,7 +31,7 @@ contract MultiToken is ERC20,Ownable {
     
     
     constructor() ERC20("MultiToken","MTK") Ownable(msg.sender){
-        basket=new BasketPrice();
+        basket=new BasketPrice(address(0));
     
         }
 
@@ -129,7 +129,7 @@ contract MultiToken is ERC20,Ownable {
     /// @notice Get the current basket price from BasketPrice contract
     /// @dev Normalized to 18 decimals
     /// @return tokenPrice The basket price in 18 decimals
-    function _getTokenPrice() public view returns(uint256 ){
+    function _getTokenPrice() public returns(uint256 ){
         return basket.getBasketPrice();
     }
 }

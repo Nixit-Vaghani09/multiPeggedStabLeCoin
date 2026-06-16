@@ -23,16 +23,16 @@ contract MTKEngineTest is Test {
 
 
     function setUp() public {
-        basketPrice = new BasketPrice();
-        multiToken = new MultiToken(); 
-        collateral =new ERC20Mock("MockCollateral","MCL",user,STARTING_BALANCE);
         helperConfig = new HelperConfig();
-        mockV3Aggregator = new MockV3Aggregator(8,2000e8);
-        helperConfig.addConfig(address(collateral),address(mockV3Aggregator));
-        mtkEngine = new MTKEngine(address(basketPrice),address(multiToken),address(helperConfig));
+        basketPrice = new BasketPrice(address(helperConfig));
+        multiToken = new MultiToken(); 
+        collateral = new ERC20Mock("MockCollateral", "MCL", user, STARTING_BALANCE);
+        mockV3Aggregator = new MockV3Aggregator(8, 2000e8);
+        helperConfig.addConfig(address(collateral), address(mockV3Aggregator));
+        mtkEngine = new MTKEngine(address(basketPrice), address(multiToken), address(helperConfig));
         multiToken.transferOwnership(address(mtkEngine));
-        basketPrice.addFeed(address(mockV3Aggregator),100);
-        collateral.mint(user,STARTING_BALANCE);
+        basketPrice.addFeed(address(collateral), 100);
+        collateral.mint(user, STARTING_BALANCE);
     }
 
     function testDepositWithdrawIfAmountLessThanZero() external {
@@ -61,13 +61,13 @@ contract MTKEngineTest is Test {
 
         collateral.approve(address(mtkEngine), 10 ether);
 
-        vm.expectEmit(true, true, false, false);
-        emit MTKEngine.DepositedSuccessfully();
+        vm.expectEmit(true, true, false, true);
+        emit MTKEngine.DepositedSuccessfully(user, address(collateral), 10 ether, 10 ether);
 
         mtkEngine.deposit(address(collateral), 10 ether);
 
         // Collateral balance updated
-        assertEq(mtkEngine.userCollateralBalance(user, address(collateral)), 10 ether);
+        assertEq(mtkEngine.userCollateralBalance(user, block.chainid, address(collateral)), 10 ether);
 
         // Stablecoin minted
         uint256 minted = multiToken.balanceOf(user);
@@ -80,8 +80,8 @@ contract MTKEngineTest is Test {
         vm.startPrank(user);
         collateral.approve(address(mtkEngine), 5 ether);
 
-        vm.expectEmit(true, true, false, false);
-        emit MTKEngine.DepositedSuccessfully();
+        vm.expectEmit(true, true, false, true);
+        emit MTKEngine.DepositedSuccessfully(user, address(collateral), 5 ether, 5 ether);
 
         mtkEngine.deposit(address(collateral), 5 ether);
 
@@ -99,13 +99,13 @@ contract MTKEngineTest is Test {
         collateral.approve(address(mtkEngine),STARTING_BALANCE);
         mtkEngine.deposit(address(collateral),STARTING_BALANCE);
         uint256 burnAmount = multiToken.balanceOf(user) / 2; // burn half
-        vm.expectEmit(true, true, false, false);
-        emit MTKEngine.WithdrawSuccessful();
+        vm.expectEmit(true, true, false, true);
+        emit MTKEngine.WithdrawSuccessful(user, address(collateral), burnAmount, burnAmount);
 
         mtkEngine.withdraw(burnAmount, address(collateral));
 
         // Collateral balance reduced
-        assertLt(mtkEngine.userCollateralBalance(user, address(collateral)), STARTING_BALANCE);
+        assertLt(mtkEngine.userCollateralBalance(user, block.chainid, address(collateral)), STARTING_BALANCE);
 
         // Stablecoin burned
         assertEq(multiToken.balanceOf(user), burnAmount, "Half should remain");
@@ -146,8 +146,8 @@ contract MTKEngineTest is Test {
         collateral.approve(address(mtkEngine),STARTING_BALANCE);
         mtkEngine.deposit(address(collateral),STARTING_BALANCE);
         uint256 burnAmount = multiToken.balanceOf(user) / 4;
-        vm.expectEmit(true, true, false, false);
-        emit MTKEngine.WithdrawSuccessful();
+        vm.expectEmit(true, true, false, true);
+        emit MTKEngine.WithdrawSuccessful(user, address(collateral), burnAmount, burnAmount);
         mtkEngine.withdraw(burnAmount, address(collateral));
         vm.stopPrank();
     }

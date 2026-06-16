@@ -26,10 +26,10 @@ contract MTKEngine {
     error MTKEngine__CollateralNotAllowed();
 
     /// @notice emmitted when the collateral is deposited successfully
-    event DepositedSuccessfully();
+    event DepositedSuccessfully(address indexed user, address indexed collateral, uint256 collateralAmount, uint256 tokenAmountMinted);
     
     /// @notice emmitted when the collateral is withdrawn successfully
-    event WithdrawSuccessful();
+    event WithdrawSuccessful(address indexed user, address indexed collateral, uint256 burnAmount, uint256 collateralReturned);
     
 
     //// @dev Reference to the `MultiToken`  contract
@@ -41,8 +41,8 @@ contract MTKEngine {
     /// @notice to the check if the collateral is valid and fetch its price .
     HelperConfig helperConfig;
 
-    /// @notice mapping : user -> collateral -> balance
-    mapping(address => mapping(address=>uint256)) public userCollateralBalance;
+    /// @notice mapping : user -> chainId -> collateral -> balance
+    mapping(address =>mapping(uint256 => mapping(address=>uint256))) public userCollateralBalance;
 
     constructor(address basketAddress,address multiAddress,address helperConfigAddress){
         mtk= MultiToken(multiAddress);
@@ -60,11 +60,12 @@ contract MTKEngine {
     /// @custom:error MTKEngine__CollateralNotAllowed Thrown if collateral is not allowed
     /// @custom:event DepositedSuccessfully Emitted when deposit succeeds
     function deposit(address collateral,uint256 collateralAmount) public {
+        uint256 chainId = block.chainid;
         if(collateralAmount<=0)
         {
             revert MTKEngine__AmountMustBeMoreThanZero();
         }
-        if(helperConfig.getCollateralAllowed(collateral) == false)
+        if(helperConfig.getCollateralAllowed(chainId,collateral) == false)
         {
             revert MTKEngine__CollateralNotAllowed();
         }
@@ -72,7 +73,7 @@ contract MTKEngine {
         IERC20(collateral).transferFrom(msg.sender,address(this),collateralAmount);
 
         //update user collateral balance .
-        userCollateralBalance[msg.sender][collateral]+=collateralAmount;
+        userCollateralBalance[msg.sender][chainId][collateral]+=collateralAmount;
 
         //get normalized 18 decimal collateral prize
         uint256 collateralPrice = helperConfig.getCollateralPrice(collateral);
@@ -82,7 +83,7 @@ contract MTKEngine {
         uint256 basketPrice=basket.getBasketPrice();
         uint256 tokenAmount=collateralValueUSD * 1e18 / basketPrice;
         mtk.mint(msg.sender,tokenAmount);
-        emit DepositedSuccessfully();
+        emit DepositedSuccessfully(msg.sender, collateral, collateralAmount, tokenAmount);
     }
 
     /// @notice Withdraw collateral by burning MTK stablecoin
@@ -94,11 +95,12 @@ contract MTKEngine {
     /// @custom:error MTKEngine__NotEnoughCollateralBalance Thrown if user’s collateral balance is insufficient
     /// @custom:event WithdrawSuccessful Emitted when withdrawal succeeds
     function withdraw(uint256 burnAmount,address collateral) external {
+        uint256 chainId = block.chainid;
         if(burnAmount<=0)
         {
             revert MTKEngine__AmountMustBeMoreThanZero();
         }
-        if(helperConfig.getCollateralAllowed(collateral) == false)
+        if(helperConfig.getCollateralAllowed(chainId,collateral) == false)
         {
             revert MTKEngine__CollateralNotAllowed();
         }
@@ -110,20 +112,20 @@ contract MTKEngine {
         // Calculate collateral to release (placeholder math)
         uint256 collateralPrice = helperConfig.getCollateralPrice(collateral);
         uint256 collateralReturn = usdValue *1e18/ collateralPrice;
-
-        if(userCollateralBalance[msg.sender][collateral] < collateralReturn) 
+        
+        if(userCollateralBalance[msg.sender][chainId][collateral] < collateralReturn) 
         {
             revert MTKEngine__NotEnoughCollateralBalance();
         }
 
-        userCollateralBalance[msg.sender][collateral] -= collateralReturn;
+        userCollateralBalance[msg.sender][chainId][collateral] -= collateralReturn;
 
         // Burn stablecoin
         mtk.burn(msg.sender, burnAmount);
 
         //transfer the collateral
         IERC20(collateral).transfer(msg.sender, collateralReturn);
-        emit WithdrawSuccessful();
+        emit WithdrawSuccessful(msg.sender, collateral, burnAmount, collateralReturn);
     }
 
 }
