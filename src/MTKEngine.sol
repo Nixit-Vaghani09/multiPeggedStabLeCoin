@@ -25,12 +25,15 @@ contract MTKEngine {
     /// @notice error thrown if the collateral doesn't exsist currently for our system
     error MTKEngine__CollateralNotAllowed();
 
+    error MTKEngine__TransferFailed();
+
     /// @notice emmitted when the collateral is deposited successfully
     event DepositedSuccessfully(address indexed user, address indexed collateral, uint256 collateralAmount, uint256 tokenAmountMinted);
     
     /// @notice emmitted when the collateral is withdrawn successfully
     event WithdrawSuccessful(address indexed user, address indexed collateral, uint256 burnAmount, uint256 collateralReturned);
     
+    event CollateralRedeemed(address indexed user,address indexed collateral,uint256 indexed amount,uint256 chainId);
 
     //// @dev Reference to the `MultiToken`  contract
     MultiToken  mtk;
@@ -128,4 +131,34 @@ contract MTKEngine {
         emit WithdrawSuccessful(msg.sender, collateral, burnAmount, collateralReturn);
     }
 
+
+    function redeemCollateral(address collateral,uint256 amount) public {
+        if(amount == 0)
+        {
+            revert MTKEngine__AmountMustBeMoreThanZero();
+
+        }
+        if(helperConfig.getCollateralAllowed(block.chainid,collateral) == false)
+        {
+            revert MTKEngine__CollateralNotAllowed();
+        }
+        if(amount > userCollateralBalance[msg.sender][block.chainid][collateral])
+        {
+            revert MTKEngine__NotEnoughCollateralBalance();
+        }
+
+        userCollateralBalance[msg.sender][block.chainid][collateral]-=amount;
+        emit CollateralRedeemed(msg.sender,collateral,amount,block.chainid);
+        bool success = IERC20(collateral).transfer(msg.sender,amount);
+        if(!success)
+        {
+            revert MTKEngine__TransferFailed();
+        }
+    }
+
+    //need to implement a volatility shield rebalancing
 }
+
+
+
+// have to convert the function to private and proper nomanculations now

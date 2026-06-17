@@ -4,14 +4,20 @@ pragma solidity ^0.8.0;
 import {Test} from "lib/forge-std/src/Test.sol";
 import {BasketPrice} from "src/BasketPrice.sol";
 import {HelperConfig} from "script/HelperConfig.s.sol";
+import {MockV3Aggregator} from "./mocks/MockV3Aggregator.sol";
+import {ERC20Mock} from "./mocks/ERC20Mock.sol";
 
 contract BasketPriceTest is Test{
     BasketPrice basket;
     HelperConfig helperConfig;
+    ERC20Mock collateral;
+    MockV3Aggregator mockV3Aggregator;
     function setUp() external {
         helperConfig = new HelperConfig();
         basket=new BasketPrice(address(helperConfig));
-
+        collateral = new ERC20Mock("MockCollateral", "MCL",address(0),0);
+        mockV3Aggregator = new MockV3Aggregator(8, 2000e8);
+        helperConfig.addConfig(address(collateral),address(mockV3Aggregator));
     }
 
     function testAddFeedSuccessAndEmitsEvent() external {
@@ -46,9 +52,7 @@ contract BasketPriceTest is Test{
         vm.stopPrank();
     }
 
-    function testgetBasketPrice() external {
-
-    }
+    
 
     function testChangeWeightSuccessAndEmitsEvent() external {
         address priceFeed = makeAddr("ethpricefeed");
@@ -80,5 +84,16 @@ contract BasketPriceTest is Test{
         
         vm.expectRevert(BasketPrice.BasketPrice__FeedNotFound.selector);
         basket.changeWeight(invalidFeed, 60);
+    }
+
+    function testgetBasketPriceRevertsIfWeightSumZero() external {
+        vm.expectRevert(BasketPrice.BasketPrice__WeightSumZero.selector);
+        basket.getBasketPrice();
+    }
+
+    function testgetBasketPriceSuccessAndEmitsEvent() external {
+        basket.addFeed(address(mockV3Aggregator),40);
+        uint256 totalPrice = basket.getBasketPrice();
+        assertEq(totalPrice,2000e18);
     }
 }
