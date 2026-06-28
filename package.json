@@ -1,0 +1,28 @@
+{
+  "name": "multipeggedstablecoin",
+  "version": "1.0.0",
+  "description": "A Decentralized Stablecoin Framework . Stable value through basket-backed collaterals .",
+  "main": "index.js",
+  "directories": {
+    "lib": "lib",
+    "test": "test"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Nixit-Vaghani09/multiPeggedStabLeCoin.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/Nixit-Vaghani09/multiPeggedStabLeCoin/issues"
+  },
+  "homepage": "https://github.com/Nixit-Vaghani09/multiPeggedStabLeCoin#readme",
+  "dependencies": {
+    "@pythnetwork/pyth-sdk-solidity": "^4.3.1"
+  }
+}

@@ -15,7 +15,7 @@ contract BasketPriceTest is Test{
     function setUp() external {
         helperConfig = new HelperConfig();
         basket=new BasketPrice(address(helperConfig));
-        collateral = new ERC20Mock("MockCollateral", "MCL",address(0),0);
+        collateral = new ERC20Mock("MockCollateral", "MCL",msg.sender,0);
         mockV3Aggregator = new MockV3Aggregator(8, 2000e8);
         helperConfig.addConfig(address(collateral),address(mockV3Aggregator));
     }
@@ -92,7 +92,7 @@ contract BasketPriceTest is Test{
     }
 
     function testgetBasketPriceSuccessAndEmitsEvent() external {
-        basket.addFeed(address(mockV3Aggregator),40);
+        basket.addFeed(address(collateral),40);
         uint256 totalPrice = basket.getBasketPrice();
         assertEq(totalPrice,2000e18);
     }
