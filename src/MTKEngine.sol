@@ -6,6 +6,7 @@ import {BasketPrice} from "src/BasketPrice.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {HelperConfig} from "script/HelperConfig.s.sol";
 import {VolatilityShield} from "src/VolatilityShield.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 /// @title MTKEngine
 /// @author Nixit Vaghani
@@ -15,7 +16,7 @@ import {VolatilityShield} from "src/VolatilityShield.sol";
 ///      Integrates VolatilityShield for volatility-aware collateral ratio scaling.
 ///      Implements Health Factor tracking and Liquidation engine.
 
-contract MTKEngine {
+contract MTKEngine is ReentrancyGuard{
 
     // ──────────────────────────────────────────────
     //  Errors
@@ -76,8 +77,16 @@ contract MTKEngine {
 
     // Liquidation Constants
     uint256 private constant LIQUIDATION_THRESHOLD = 15e17; // 150%
-    uint256 private constant LIQUIDATION_BONUS = 1e17;      // 10%
+    uint256 public  liquidation_bonus = 1e17;      // 10%
+    uint256 private constant PRECISION = 1e18;
 
+    uint256 private constant MIN_CR = 1e18;
+    uint256 private constant MAX_CR = 5e18;
+
+    uint256 private constant MIN_BASKETPRICE=1;
+    uint256 private constant MAX_BASKETPRICE= 1e12;
+
+    
     /// @notice mapping : user -> chainId -> collateral -> balance
     mapping(address => mapping(uint256 => mapping(address => uint256))) public userCollateralBalance;
 
@@ -109,7 +118,7 @@ contract MTKEngine {
     ///      volatility-adjusted CR, and applies dampening and mint caps if necessary.
     /// @param collateral The address of the collateral token
     /// @param collateralAmount The amount of collateral to deposit (must be > 0)
-    function deposit(address collateral, uint256 collateralAmount) public {
+    function deposit(address collateral, uint256 collateralAmount) public nonReentrant {
         uint256 chainId = block.chainid;
         if (collateralAmount <= 0) revert MTKEngine__AmountMustBeMoreThanZero();
         if (!helperConfig.getCollateralAllowed(chainId, collateral)) revert MTKEngine__CollateralNotAllowed();
@@ -118,18 +127,19 @@ contract MTKEngine {
         userCollateralBalance[msg.sender][chainId][collateral] += collateralAmount;
 
         uint256 collateralPrice = helperConfig.getCollateralPrice(chainId, collateral);
-        uint256 collateralValueUSD = collateralAmount * collateralPrice / 1e18;
+        uint256 collateralValueUSD = collateralAmount * collateralPrice / PRECISION;
 
         uint256 effectiveCR = volatilityShield.getEffectiveCollateralRatio(baseCollateralRatio, collateral, chainId);
 
         // Max Debt USD allowed = collateralValueUSD / effectiveCR
-        uint256 maxDebtUSD = (collateralValueUSD * 1e18) / effectiveCR;
+        uint256 maxDebtUSD = (collateralValueUSD * PRECISION) / effectiveCR;
 
         uint256 basketPrice = basket.getBasketPrice(chainId);
-        uint256 tokenAmountNormal = (maxDebtUSD * 1e18) / basketPrice;
+        _validateBasketPrice(basketPrice);
+        uint256 tokenAmountNormal = (maxDebtUSD * PRECISION) / basketPrice;
 
         uint256 dampeningFactor = volatilityShield.getDampeningFactor(chainId, collateral);
-        uint256 tokenAmount = tokenAmountNormal * dampeningFactor / 1e18;
+        uint256 tokenAmount = tokenAmountNormal * dampeningFactor / PRECISION;
 
         if (!volatilityShield.checkMintAllowed(chainId, collateral, tokenAmount, mtk.totalSupply())) {
             revert MTKEngine__MintingRestrictedHighVolatility();
@@ -151,16 +161,17 @@ contract MTKEngine {
     ///      Verifies the user's Health Factor remains above the threshold after withdrawal.
     /// @param burnAmount The amount of MTK stablecoin to burn (must be > 0)
     /// @param collateral The address of the collateral token to withdraw
-    function withdraw(uint256 burnAmount, address collateral) external {
+    function withdraw(uint256 burnAmount, address collateral) external nonReentrant {
         uint256 chainId = block.chainid;
         if (burnAmount <= 0) revert MTKEngine__AmountMustBeMoreThanZero();
         if (helperConfig.getCollateralAllowed(chainId, collateral) == false) revert MTKEngine__CollateralNotAllowed();
 
         uint256 basketPrice = basket.getBasketPrice(chainId);
-        uint256 usdValue = burnAmount * basketPrice / 1e18;
+        _validateBasketPrice(basketPrice);
+        uint256 usdValue = burnAmount * basketPrice / PRECISION;
 
         uint256 collateralPrice = helperConfig.getCollateralPrice(chainId, collateral);
-        uint256 collateralReturn = usdValue * 1e18 / collateralPrice;
+        uint256 collateralReturn = usdValue * PRECISION / collateralPrice;
 
         if (userCollateralBalance[msg.sender][chainId][collateral] < collateralReturn) {
             revert MTKEngine__NotEnoughCollateralBalance();
@@ -186,7 +197,7 @@ contract MTKEngine {
     /// @dev Allows users to withdraw excess collateral as long as their Health Factor remains safe.
     /// @param collateral The address of the collateral token to redeem
     /// @param amount The amount of collateral to redeem (must be > 0)
-    function redeemCollateral(address collateral, uint256 amount) public {
+    function redeemCollateral(address collateral, uint256 amount) public nonReentrant {
         if (amount == 0) revert MTKEngine__AmountMustBeMoreThanZero();
         if (helperConfig.getCollateralAllowed(block.chainid, collateral) == false) revert MTKEngine__CollateralNotAllowed();
         if (amount > userCollateralBalance[msg.sender][block.chainid][collateral]) revert MTKEngine__NotEnoughCollateralBalance();
@@ -202,7 +213,7 @@ contract MTKEngine {
 
     /// @notice Burn MTK tokens to reduce debt
     /// @param amount The amount of MTK to burn (must be > 0 and <= user debt)
-    function burnToken(uint256 amount) public {
+    function burnToken(uint256 amount) public nonReentrant {
         if (amount == 0) revert MTKEngine__AmountMustBeMoreThanZero();
         if (amount > userDebtBalance[msg.sender]) revert MTKEngine__NotEnoughDebt();
         mtk.burn(msg.sender, amount);
@@ -212,7 +223,7 @@ contract MTKEngine {
     /// @notice Deposit collateral without minting MTK (add collateral to existing position)
     /// @param collateral The collateral token address
     /// @param amount The amount of collateral to deposit
-    function depositCollateral(address collateral, uint256 amount) external {
+    function depositCollateral(address collateral, uint256 amount) external nonReentrant {
         if (amount == 0) revert MTKEngine__AmountMustBeMoreThanZero();
         uint256 chainId = block.chainid;
         if (!helperConfig.getCollateralAllowed(chainId, collateral)) revert MTKEngine__CollateralNotAllowed();
@@ -232,19 +243,20 @@ contract MTKEngine {
     /// @param collateral The collateral token to seize
     /// @param user The user who is under-collateralized
     /// @param debtToCover The amount of MTK debt the liquidator wants to repay
-    function liquidate(address collateral, address user, uint256 debtToCover) external {
+    function liquidate(address collateral, address user, uint256 debtToCover) external nonReentrant {
         uint256 startingHealthFactor = _healthFactor(user);
         if (startingHealthFactor >= LIQUIDATION_THRESHOLD) {
             revert MTKEngine__HealthFactorOk();
         }
 
         uint256 basketPrice = basket.getBasketPrice(block.chainid);
-        uint256 debtValueUSD = (debtToCover * basketPrice) / 1e18;
+        _validateBasketPrice(basketPrice);
+        uint256 debtValueUSD = (debtToCover * basketPrice) / PRECISION;
 
         uint256 collateralPrice = helperConfig.getCollateralPrice(block.chainid, collateral);
-        uint256 collateralEquivalent = (debtValueUSD * 1e18) / collateralPrice;
+        uint256 collateralEquivalent = (debtValueUSD * PRECISION) / collateralPrice;
 
-        uint256 bonusCollateral = (collateralEquivalent * LIQUIDATION_BONUS) / 1e18;
+        uint256 bonusCollateral = (collateralEquivalent * liquidation_bonus) / PRECISION;
         uint256 totalCollateralToReward = collateralEquivalent + bonusCollateral;
 
         uint256 userCollateral = userCollateralBalance[user][block.chainid][collateral];
@@ -278,7 +290,7 @@ contract MTKEngine {
             uint256 amount = userCollateralBalance[user][chainId][token];
             if (amount > 0) {
                 uint256 price = helperConfig.getCollateralPrice(chainId, token);
-                totalCollateralValueUSD += (amount * price) / 1e18;
+                totalCollateralValueUSD += (amount * price) / PRECISION;
             }
         }
     }
@@ -286,6 +298,9 @@ contract MTKEngine {
     function getHealthFactor() external view returns (uint256) {
         return _healthFactor(msg.sender);
     }
+
+    
+
 
     /// @notice Computes user's Health Factor
     /// @dev Returns (maxDebtAllowed * 1e18) / (debtInUSD). Values >= LIQUIDATION_THRESHOLD are healthy.
@@ -302,15 +317,16 @@ contract MTKEngine {
             uint256 amt = userCollateralBalance[user][chainId][collaterals[i]];
             if (amt == 0) continue;
             uint256 price = helperConfig.getCollateralPrice(chainId, collaterals[i]);
-            totalCollateralValueUSD += (amt * price) / 1e18;
+            totalCollateralValueUSD += (amt * price) / PRECISION;
         }
 
         uint256 basketPrice = basket.getBasketPrice(chainId);
+        _validateBasketPrice(basketPrice);
 
-        // healthFactor = collateralValueUSD * 1e18 / (debt * basketPrice / 1e18)
-        uint256 debtValueUSD = (debt * basketPrice) / 1e18;
-        uint256 healthFactor = (totalCollateralValueUSD * 1e18) / debtValueUSD;
-        return healthFactor;
+        // healthFactor = collateralValueUSD * PRECISION / (debt * basketPrice / PRECISION)
+        uint256 debtValueUSD = (debt * basketPrice) / PRECISION;
+        return _effectiveCR(debtValueUSD,totalCollateralValueUSD);
+        
     }
 
     /// @notice Reverts if user's Health Factor drops below the liquidation threshold
@@ -320,4 +336,24 @@ contract MTKEngine {
             revert MTKEngine__BreaksHealthFactor(userHealthFactor);
         }
     }
+
+    function getPrecision() external pure returns (uint256) {
+        return PRECISION;
+    }
+
+    function _effectiveCR(uint256 debtValue , uint256 collateralValue) internal pure returns(uint256) {
+        if(debtValue == 0) return type(uint256).max;
+        uint256 cr= (collateralValue *PRECISION) / debtValue;
+        require(cr > MIN_CR,"Collateral Ratio less than minimum value of 100%");
+        require(cr < MAX_CR,"Collateral Ratio more than maximum value of 500%");
+        return cr;
+    }
+
+    function _validateBasketPrice(uint256 price) internal pure {
+        require (MIN_BASKETPRICE * PRECISION <=price , "basket price is too low");
+        require( MAX_BASKETPRICE * PRECISION <=price , "basket price is too high");
+    }
+
+    
+
 }

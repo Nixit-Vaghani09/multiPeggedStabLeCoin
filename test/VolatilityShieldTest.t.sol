@@ -377,4 +377,9 @@ contract VolatilityShieldTest is Test {
         bool allowed = volatilityShield.checkMintAllowed(chainId, address(collateral), 60e18, 1000e18);
         assertFalse(allowed, "5% cap should block 60e18 mint from 1000e18 supply");
     }
+
+    function testGetPrecision() public view {
+        assertEq(volatilityShield.getPrecision(), 1e18);
+    }
 }
+

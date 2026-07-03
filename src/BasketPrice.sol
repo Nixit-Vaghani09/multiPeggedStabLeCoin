@@ -27,6 +27,12 @@ contract BasketPrice is Ownable {
     HelperConfig public helperConfig;
     VolatilityShield public volatilityShield;
 
+    uint256 private constant PRECISION = 1e18;
+
+    function getPrecision() external pure returns (uint256) {
+        return PRECISION;
+    }
+
     constructor(address _helperConfig, address _pythAddress) Ownable(msg.sender) {
         helperConfig = HelperConfig(_helperConfig);
         volatilityShield = new VolatilityShield(_helperConfig, _pythAddress);
@@ -61,7 +67,7 @@ contract BasketPrice is Ownable {
             (uint256 price, uint8 decimals) = _getPrice(chainId, i);
 
             // Normalize to 18 decimals
-            price = price * (1e18 / 10 ** decimals);
+            price = price * (PRECISION / 10 ** decimals);
             total += uint256(price) * collateralWeights[chainId][basketCollaterals[chainId][i]];
             totalWeight += collateralWeights[chainId][basketCollaterals[chainId][i]];
         }
@@ -71,7 +77,7 @@ contract BasketPrice is Ownable {
         }
         uint256 basketPrice = total / totalWeight;
         uint256 damp = volatilityShield.getSystemDampeningFactor(chainId);
-        return (basketPrice * damp)/1e18;
+        return (basketPrice * damp)/PRECISION;
     }
 
     /// @notice Helper function to fetch price and decimals from a Chainlink feed for a collateral

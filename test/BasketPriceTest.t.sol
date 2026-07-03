@@ -177,4 +177,9 @@ contract BasketPriceTest is Test {
         address vsAddr = address(basket.volatilityShield());
         assertTrue(vsAddr != address(0), "VolatilityShield should be deployed");
     }
+
+
+    function testGetPrecision() public {
+        assertEq(1e18,basket.getPrecision());
+    }
 }

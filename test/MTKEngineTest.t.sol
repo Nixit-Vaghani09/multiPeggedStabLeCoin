@@ -509,4 +509,8 @@ contract MTKEngineTest is Test {
         assertGt(multiToken.balanceOf(user), 0, "Should have tokens after deposit");
         vm.stopPrank();
     }
+
+    function testGetPrecision() public {
+        assertEq(1e18,mtkEngine.getPrecision());
+    }
 }
