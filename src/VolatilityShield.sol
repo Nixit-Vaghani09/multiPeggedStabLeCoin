@@ -4,6 +4,7 @@ pragma solidity ^0.8.0;
 import {IPyth} from "@pythnetwork/pyth-sdk-solidity/IPyth.sol";
 import {PythStructs} from "@pythnetwork/pyth-sdk-solidity/PythStructs.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {HelperConfig} from "script/HelperConfig.s.sol";
 
 /// @title VolatilityShield
 /// @author Nixit Vaghani
@@ -49,6 +50,7 @@ contract VolatilityShield is Ownable {
 
     /// @notice The Pyth oracle contract
     IPyth public pyth;
+    HelperConfig internal helperConfig;
 
     /// @notice The Pyth price feed ID to monitor (e.g. ETH/USD)
     bytes32 public pythPriceId;
@@ -82,23 +84,52 @@ contract VolatilityShield is Ownable {
     //  Constructor
     // ──────────────────────────────────────────────
 
+    /// @param _helperConfig The HelperConfig contract address
     /// @param _pythAddress The on-chain Pyth contract address
-    /// @param _pythPriceId The bytes32 Pyth price feed ID to monitor
-    constructor(address _pythAddress, bytes32 _pythPriceId) Ownable(msg.sender) {
-        if (_pythAddress == address(0)) revert VolatilityShield__ZeroAddress();
+    constructor(address _helperConfig, address _pythAddress) Ownable(msg.sender) {
+        if (_helperConfig == address(0) || _pythAddress == address(0))
+            revert VolatilityShield__ZeroAddress();
+        helperConfig = HelperConfig(_helperConfig);
         pyth = IPyth(_pythAddress);
-        pythPriceId = _pythPriceId;
     }
 
     // ──────────────────────────────────────────────
     //  Core View Functions
     // ──────────────────────────────────────────────
 
-    /// @notice Compute the volatility index and classify into a band
+    /// @notice Compute the system-wide volatility index (worst-case across all collaterals)
+    function getSystemVolatilityIndex(uint256 chainId) public view returns (uint256 V, VolatilityBand band) {
+        address[] memory collaterals = helperConfig.getEnabledCollaterals(chainId);
+        uint256 maxV = 0;
+        for (uint256 i = 0; i < collaterals.length; i++) {
+            if (!helperConfig.getCollateralAllowed(chainId, collaterals[i])) continue;
+
+            bytes32 pythId = helperConfig.getPythPriceId(collaterals[i], chainId);
+            PythStructs.Price memory p = pyth.getPriceNoOlderThan(pythId, maxStaleness);
+
+            if (p.price == 0) continue;
+
+            uint256 absPrice = p.price < 0
+                ? uint256(uint64(uint256(-int256(p.price))))
+                : uint256(uint64(uint256(int256(p.price))));
+            uint256 conf = uint256(p.conf);
+
+            uint256 volIndex = (conf * BPS) / absPrice;
+            if (volIndex > maxV) maxV = volIndex;
+        }
+
+        V = maxV;
+        if (V < lowVolThreshold) band = VolatilityBand.LOW;
+        else if (V < highVolThreshold) band = VolatilityBand.MEDIUM;
+        else band = VolatilityBand.HIGH;
+    }
+
+    /// @notice Compute the volatility index for a specific collateral and classify into a band
     /// @return V The volatility index in basis points (conf * 10000 / |price|)
     /// @return band The volatility classification (LOW, MEDIUM, HIGH)
-    function getVolatilityIndex() public view returns (uint256 V, VolatilityBand band) {
-        PythStructs.Price memory pythPrice = pyth.getPriceNoOlderThan(pythPriceId, maxStaleness);
+    function getVolatilityIndex(uint256 chainId, address collateral) public view returns (uint256 V, VolatilityBand band) {
+        bytes32 _pythPriceId = helperConfig.getPythPriceId(collateral, chainId);
+        PythStructs.Price memory pythPrice = pyth.getPriceNoOlderThan(_pythPriceId, maxStaleness);
 
         if (pythPrice.price <= 0) revert VolatilityShield__InvalidPrice();
 
@@ -117,30 +148,35 @@ contract VolatilityShield is Ownable {
         }
     }
 
-    /// @notice Calculate effective collateral ratio with volatility scaling
+    /// @notice Calculate effective collateral ratio with volatility scaling (per-collateral)
     /// @dev CR_effective = CR_base × (1 + α · V / 10000)
-    ///      All math in 1e18 precision. α is in 1e4, V is in bps.
     /// @param CRbase The base collateral ratio in 1e18 (e.g. 1e18 = 100%)
+    /// @param collateral The collateral token address
+    /// @param chainId The chain ID
     /// @return CReffective The volatility-adjusted collateral ratio in 1e18
-    function getEffectiveCollateralRatio(uint256 CRbase) external view returns (uint256 CReffective) {
-        (uint256 V, ) = getVolatilityIndex();
+    function getEffectiveCollateralRatio(uint256 CRbase, address collateral, uint256 chainId) external view returns (uint256 CReffective) {
+        (uint256 V, ) = getVolatilityIndex(chainId, collateral);
 
-        // scalingFactor = 1 + (alpha * V) / (BPS * BPS)
-        // In 1e18: PRECISION + (alphaSensitivity * V * PRECISION) / (BPS * BPS)
         uint256 scalingNumerator = alphaSensitivity * V * PRECISION;
         uint256 scalingFactor = PRECISION + (scalingNumerator / (BPS * BPS));
 
         CReffective = (CRbase * scalingFactor) / PRECISION;
     }
 
-    /// @notice Get the dampening factor f(V) for rebase supply adjustments
-    /// @dev Returns a multiplier in 1e18 precision:
-    ///      LOW    → 1.0  (1e18)   — no dampening
-    ///      MEDIUM → 0.5  (5e17)   — 50% dampening
-    ///      HIGH   → 0.1  (1e17)   — 90% dampening
-    /// @return factor The dampening multiplier in 1e18
-    function getDampeningFactor() external view returns (uint256 factor) {
-        (, VolatilityBand band) = getVolatilityIndex();
+    /// @notice Calculate effective collateral ratio with volatility scaling (system-wide)
+    function getSystemEffectiveCollateralRatio(uint256 chainId, uint256 CRbase) external view returns (uint256 CReffective) {
+        (uint256 V,) = getSystemVolatilityIndex(chainId);
+
+        uint256 scalingNumerator = alphaSensitivity * V * PRECISION;
+        uint256 scalingFactor = PRECISION + (scalingNumerator / (BPS * BPS));
+
+        CReffective = (CRbase * scalingFactor) / PRECISION;
+    }
+
+    /// @notice Get the dampening factor f(V) for a specific collateral
+    /// @dev LOW → 1.0e18, MEDIUM → 0.5e18, HIGH → 0.1e18
+    function getDampeningFactor(uint256 chainId, address collateral) external view returns (uint256 factor) {
+        (, VolatilityBand band) = getVolatilityIndex(chainId, collateral);
 
         if (band == VolatilityBand.LOW) {
             factor = PRECISION;           // 1.0
@@ -151,15 +187,27 @@ contract VolatilityShield is Ownable {
         }
     }
 
+    /// @notice Get the system-wide dampening factor (worst-case across all collaterals)
+    function getSystemDampeningFactor(uint256 chainId) external view returns (uint256 factor) {
+        (, VolatilityBand band) = getSystemVolatilityIndex(chainId);
+        if (band == VolatilityBand.LOW) {
+            factor = PRECISION;
+        } else if (band == VolatilityBand.MEDIUM) {
+            factor = PRECISION / 2;
+        } else {
+            factor = PRECISION / 10;
+        }
+    }
+
     /// @notice Check whether a mint of `mintAmount` is allowed given current volatility
     /// @dev During HIGH volatility, mints are capped at `mintCapBps` of `currentTotalSupply`.
-    ///      During LOW/MEDIUM volatility, all mints are allowed.
-    ///      If totalSupply is 0, mints are always allowed (bootstrapping).
+    /// @param chainId The chain ID
+    /// @param collateral The collateral token address
     /// @param mintAmount The proposed mint amount
     /// @param currentTotalSupply The current total supply of the stablecoin
     /// @return allowed True if the mint is permitted
-    function checkMintAllowed(uint256 mintAmount, uint256 currentTotalSupply) external view returns (bool allowed) {
-        (, VolatilityBand band) = getVolatilityIndex();
+    function checkMintAllowed(uint256 chainId, address collateral, uint256 mintAmount, uint256 currentTotalSupply) external view returns (bool allowed) {
+        (, VolatilityBand band) = getVolatilityIndex(chainId, collateral);
 
         if (band != VolatilityBand.HIGH) {
             return true;
@@ -180,8 +228,6 @@ contract VolatilityShield is Ownable {
     // ──────────────────────────────────────────────
 
     /// @notice Update volatility band thresholds
-    /// @param _lowVolThreshold New low volatility threshold (bps)
-    /// @param _highVolThreshold New high volatility threshold (bps)
     function setThresholds(uint256 _lowVolThreshold, uint256 _highVolThreshold) external onlyOwner {
         if (_lowVolThreshold >= _highVolThreshold) revert VolatilityShield__InvalidThresholds();
         lowVolThreshold = _lowVolThreshold;
@@ -190,29 +236,24 @@ contract VolatilityShield is Ownable {
     }
 
     /// @notice Update the alpha sensitivity factor
-    /// @param _alphaSensitivity New alpha value in 1e4 precision
     function setAlpha(uint256 _alphaSensitivity) external onlyOwner {
         alphaSensitivity = _alphaSensitivity;
         emit AlphaUpdated(_alphaSensitivity);
     }
 
     /// @notice Update the minting cap for HIGH volatility
-    /// @param _mintCapBps New cap in basis points of total supply
     function setMintCap(uint256 _mintCapBps) external onlyOwner {
         mintCapBps = _mintCapBps;
         emit MintCapUpdated(_mintCapBps);
     }
 
     /// @notice Update maximum staleness for Pyth data
-    /// @param _maxStaleness New max staleness in seconds
     function setMaxStaleness(uint256 _maxStaleness) external onlyOwner {
         maxStaleness = _maxStaleness;
         emit MaxStalenessUpdated(_maxStaleness);
     }
 
     /// @notice Update the Pyth oracle address and price feed ID
-    /// @param _pythAddress New Pyth contract address
-    /// @param _pythPriceId New Pyth price feed ID
     function setPythConfig(address _pythAddress, bytes32 _pythPriceId) external onlyOwner {
         if (_pythAddress == address(0)) revert VolatilityShield__ZeroAddress();
         pyth = IPyth(_pythAddress);

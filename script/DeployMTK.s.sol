@@ -7,7 +7,7 @@ import {MultiToken} from "src/MultiToken.sol";
 contract DeployMTK is Script{
     function run() external returns(MultiToken){
         vm.startBroadcast();
-        MultiToken mtk=new MultiToken();
+        MultiToken mtk=new MultiToken(address(0));
         vm.stopBroadcast();
         return mtk;
     }

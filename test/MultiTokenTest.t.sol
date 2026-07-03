@@ -11,7 +11,7 @@ contract MultiTokenTest is Test {
     address user = makeAddr("user");
     function setUp() external{
 
-        token=new MultiToken();
+        token=new MultiToken(address(0));
         
     }
 

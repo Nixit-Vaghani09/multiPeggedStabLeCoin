@@ -30,10 +30,15 @@ contract MultiToken is ERC20,Ownable {
     
     
     
-    constructor() ERC20("MultiToken","MTK") Ownable(msg.sender){
-        basket=new BasketPrice(address(0));
-    
-        }
+    constructor(address basketAddress) ERC20("MultiToken","MTK") Ownable(msg.sender){
+        basket = BasketPrice(basketAddress);
+    }
+
+    /// @notice Set the BasketPrice contract address
+    /// @param basketAddress The address of the BasketPrice contract
+    function setBasket(address basketAddress) external onlyOwner {
+        basket = BasketPrice(basketAddress);
+    }
 
     /// @notice Mint new tokens to a recipient
     /// @dev Restricted to owner (engine). Validates non‑zero address and amount.
@@ -129,7 +134,10 @@ contract MultiToken is ERC20,Ownable {
     /// @notice Get the current basket price from BasketPrice contract
     /// @dev Normalized to 18 decimals
     /// @return tokenPrice The basket price in 18 decimals
-    function _getTokenPrice() public returns(uint256 ){
-        return basket.getBasketPrice();
+    function _getTokenPrice() public view returns(uint256 ){
+        if (address(basket) == address(0)) {
+            return 0;
+        }
+        return basket.getBasketPrice(block.chainid);
     }
 }
