@@ -6,17 +6,12 @@ import {AggregatorV3Interface} from "@chainlink/contracts/src/v0.8/shared/interf
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 contract HelperConfig is Script, Ownable {
-
     constructor() Ownable(msg.sender) {}
     error HelperConfig__addressCantBeZero();
     error HelperConfig__CollateralDoesntExsist();
     error HelperConfig__PriceMustBeGreateThanZero();
 
-    event CollateralAdded(
-        uint256 chainId,
-        address collateral,
-        address pricefeed
-    );
+    event CollateralAdded(uint256 chainId, address collateral, address pricefeed);
 
     struct CollateralConfig {
         address priceFeed;
@@ -24,8 +19,7 @@ contract HelperConfig is Script, Ownable {
         bool allowed;
     }
 
-    mapping(uint256 chainId => mapping(address => CollateralConfig))
-        private collateralConfigs;
+    mapping(uint256 chainId => mapping(address => CollateralConfig)) private collateralConfigs;
     mapping(uint256 chainId => address[]) private allCollaterals;
     mapping(uint256 chainId => address) pythAddresses;
     mapping(address collateral => bytes32 pythId) pythIds;
@@ -33,55 +27,45 @@ contract HelperConfig is Script, Ownable {
     // _______________________________________________________________
     //                  update functions
     //________________________________________________________________
-    function addCollateral(
-        uint256 chainId,
-        address collateral,
-        address pricefeed,
-        bytes32 pythPriceId
-    ) public onlyOwner {
+    function addCollateral(uint256 chainId, address collateral, address pricefeed, bytes32 pythPriceId)
+        public
+        onlyOwner
+    {
         if (collateral == address(0) || pricefeed == address(0)) {
             revert HelperConfig__addressCantBeZero();
         }
 
         uint8 collateralDecimals = AggregatorV3Interface(pricefeed).decimals();
-        collateralConfigs[chainId][collateral] = CollateralConfig({
-            priceFeed: pricefeed,
-            decimals: collateralDecimals,
-            allowed: true
-        });
+        collateralConfigs[chainId][collateral] =
+            CollateralConfig({priceFeed: pricefeed, decimals: collateralDecimals, allowed: true});
         pythIds[collateral] = pythPriceId;
         allCollaterals[chainId].push(collateral);
         emit CollateralAdded(chainId, collateral, pricefeed);
     }
 
-    function addPythAddress(uint256 chainId,address pythAddress) public onlyOwner {
-        if(pythAddress == address(0))
-        revert HelperConfig__addressCantBeZero();
+    function addPythAddress(uint256 chainId, address pythAddress) public onlyOwner {
+        if (pythAddress == address(0)) {
+            revert HelperConfig__addressCantBeZero();
+        }
         pythAddresses[chainId] = pythAddress;
     }
 
     function updatePythId(address collateral, bytes32 pythId) external onlyOwner {
-        
         pythIds[collateral] = pythId;
     }
 
     function updatePriceFeed(uint256 chainId, address collateral, address priceFeed) external onlyOwner {
-        if(collateral == address(0) || priceFeed == address(0))
-        {
+        if (collateral == address(0) || priceFeed == address(0)) {
             revert HelperConfig__addressCantBeZero();
         }
         collateralConfigs[chainId][collateral].priceFeed = priceFeed;
     }
 
-    function updatePythAddress(uint256 chainId,address pythAddress) public onlyOwner {
+    function updatePythAddress(uint256 chainId, address pythAddress) public onlyOwner {
         pythAddresses[chainId] = pythAddress;
     }
 
-    function setCollateralEnabled(
-        uint256 chainId,
-        address collateral,
-        bool enabled
-    ) external onlyOwner {
+    function setCollateralEnabled(uint256 chainId, address collateral, bool enabled) external onlyOwner {
         collateralConfigs[chainId][collateral].allowed = enabled;
     }
 
@@ -96,9 +80,7 @@ contract HelperConfig is Script, Ownable {
             revert HelperConfig__CollateralDoesntExsist();
         }
 
-        (, int256 price, , , ) = AggregatorV3Interface(
-            collateralConfigs[chainId][collateral].priceFeed
-        ).latestRoundData();
+        (, int256 price,,,) = AggregatorV3Interface(collateralConfigs[chainId][collateral].priceFeed).latestRoundData();
         if (price <= 0) {
             revert HelperConfig__PriceMustBeGreateThanZero();
         }
@@ -117,39 +99,31 @@ contract HelperConfig is Script, Ownable {
 
     // ___________________priceFeed________________________
 
-    function getEnabledCollateralPriceFeeds(
-        uint256 chainId
-    ) external view returns (address[] memory enabled) {
-        uint count;
+    function getEnabledCollateralPriceFeeds(uint256 chainId) external view returns (address[] memory enabled) {
+        uint256 count;
         address[] memory collaterals = allCollaterals[chainId];
 
-        for (uint i = 0; i < collaterals.length; i++) {
+        for (uint256 i = 0; i < collaterals.length; i++) {
             if (collateralConfigs[chainId][collaterals[i]].allowed) {
                 count++;
             }
         }
 
         enabled = new address[](count);
-        uint idx;
-        for (uint i = 0; i < collaterals.length; i++) {
+        uint256 idx;
+        for (uint256 i = 0; i < collaterals.length; i++) {
             if (collateralConfigs[chainId][collaterals[i]].allowed) {
                 enabled[idx++] = collateralConfigs[chainId][collaterals[i]].priceFeed;
             }
         }
     }
 
-    function getFeed(
-        uint256 chainId,
-        address collateral
-    ) external view returns (address, uint8) {
+    function getFeed(uint256 chainId, address collateral) external view returns (address, uint8) {
         if (collateralConfigs[chainId][collateral].allowed == false) {
             revert HelperConfig__CollateralDoesntExsist();
         }
 
-        return (
-            collateralConfigs[chainId][collateral].priceFeed,
-            collateralConfigs[chainId][collateral].decimals
-        );
+        return (collateralConfigs[chainId][collateral].priceFeed, collateralConfigs[chainId][collateral].decimals);
     }
 
     //______________________Collaterals______________________________
@@ -159,41 +133,36 @@ contract HelperConfig is Script, Ownable {
     }
 
     function getEnabledCollaterals(uint256 chainId) external view returns (address[] memory enabled) {
-        uint count;
+        uint256 count;
         address[] memory collaterals = allCollaterals[chainId];
-        for (uint i = 0; i < collaterals.length; i++) {
+        for (uint256 i = 0; i < collaterals.length; i++) {
             if (collateralConfigs[chainId][collaterals[i]].allowed) {
                 count++;
             }
         }
         enabled = new address[](count);
-        uint idx;
-        for (uint i = 0; i < collaterals.length; i++) {
+        uint256 idx;
+        for (uint256 i = 0; i < collaterals.length; i++) {
             if (collateralConfigs[chainId][collaterals[i]].allowed) {
                 enabled[idx++] = collaterals[i];
             }
         }
     }
 
-    function getCollateralAllowed(
-        uint256 chainId,
-        address collateral
-    ) external view returns (bool) {
+    function getCollateralAllowed(uint256 chainId, address collateral) external view returns (bool) {
         return collateralConfigs[chainId][collateral].allowed;
     }
 
     //________________________pythId__________________________
 
-    function getPythPriceId(
-        address collateral,uint256 chainId
-    ) external view returns (bytes32) {
+    function getPythPriceId(address collateral, uint256 chainId) external view returns (bytes32) {
         if (collateralConfigs[chainId][collateral].allowed == false) {
             revert HelperConfig__CollateralDoesntExsist();
         }
         return pythIds[collateral];
     }
 
-    function getPythAddress(uint256 chainId) external view returns(address) {
+    function getPythAddress(uint256 chainId) external view returns (address) {
         return pythAddresses[chainId];
     }
 }

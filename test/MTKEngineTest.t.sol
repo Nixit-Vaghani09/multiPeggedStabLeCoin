@@ -15,7 +15,6 @@ import {MockPyth} from "./mocks/MockPyth.sol";
 /// @notice Tests for MTKEngine — deposit, withdraw, redeemCollateral, burnToken,
 ///         depositCollateral, liquidation, health factor, and volatility integration.
 contract MTKEngineTest is Test {
-
     MTKEngine mtkEngine;
     BasketPrice basketPrice;
     MultiToken multiToken;
@@ -60,7 +59,7 @@ contract MTKEngineTest is Test {
         volatilityShield = new VolatilityShield(address(helperConfig));
 
         // Deploy BasketPrice (now takes only helperConfig; VolatilityShield created internally)
-        basketPrice = new BasketPrice(address(helperConfig),address(volatilityShield));
+        basketPrice = new BasketPrice(address(helperConfig), address(volatilityShield));
 
         // Register both collaterals in BasketPrice basket (weight 100 each)
         basketPrice.addCollateral(address(collateral), 100);
@@ -70,12 +69,8 @@ contract MTKEngineTest is Test {
         multiToken = new MultiToken(address(basketPrice));
 
         // Deploy MTKEngine
-        mtkEngine = new MTKEngine(
-            address(basketPrice),
-            address(multiToken),
-            address(helperConfig),
-            address(volatilityShield)
-        );
+        mtkEngine =
+            new MTKEngine(address(basketPrice), address(multiToken), address(helperConfig), address(volatilityShield));
 
         // Transfer MultiToken ownership to engine so it can mint/burn
         multiToken.transferOwnership(address(mtkEngine));
@@ -354,7 +349,6 @@ contract MTKEngineTest is Test {
         vm.stopPrank();
     }
 
-
     function testDepositRevertsIfBasketPriceTooLow() public {
         mockV3Aggregator.updateAnswer(1);
         mockV3Aggregator2.updateAnswer(1);
@@ -538,7 +532,7 @@ contract MTKEngineTest is Test {
 
         // 1. Crash collateral price so user is liquidatable
         mockV3Aggregator.updateAnswer(1000e8);
-        
+
         // 2. Set basket price artificially low (to trigger validateBasketPrice revert)
         // Note: we just crash both aggregators below MIN_BASKETPRICE
         mockV3Aggregator.updateAnswer(1);
@@ -673,7 +667,7 @@ contract MTKEngineTest is Test {
         assertEq(mtkEngine.userCollateralBalance(user, chainId, address(collateral)), 5 ether);
         assertEq(mtkEngine.userCollateralBalance(user, chainId, address(collateral2)), 5 ether);
 
-        (uint256 totalCollateralValueUSD, ) = mtkEngine.getAccountInformation(user);
+        (uint256 totalCollateralValueUSD,) = mtkEngine.getAccountInformation(user);
         // 5 ether * $2000 + 5 ether * $2000 = $20,000
         assertEq(totalCollateralValueUSD, 20000 ether, "Combined collateral should be $20,000");
         vm.stopPrank();
@@ -759,32 +753,32 @@ contract MTKEngineTest is Test {
     /// @dev Confirm adjustCR returns rawCR unchanged when volatility is LOW
     ///      and rawCR is well within [MIN_CR, MAX_CR].
     function testAdjustCR_LowVol_InRangeCR_DirectCall() public view {
-        uint256 rawCR = 2e18;        // 200%
-        uint256 dampening = 1e18;    // LOW vol
+        uint256 rawCR = 2e18; // 200%
+        uint256 dampening = 1e18; // LOW vol
         uint256 adjusted = volatilityShield.adjustCR(rawCR, dampening);
         assertEq(adjusted, 2e18, "LOW vol: adjustCR(200%, 1) == 200%");
     }
 
     /// @dev MEDIUM vol (50% dampening): rawCR 300% → adjusted 150%.
     function testAdjustCR_MediumVol_InRangeCR_DirectCall() public view {
-        uint256 rawCR = 3e18;       // 300%
-        uint256 dampening = 5e17;   // MEDIUM vol
+        uint256 rawCR = 3e18; // 300%
+        uint256 dampening = 5e17; // MEDIUM vol
         uint256 adjusted = volatilityShield.adjustCR(rawCR, dampening);
         assertEq(adjusted, 15e17, "MEDIUM vol: adjustCR(300%, 0.5) == 150%");
     }
 
     /// @dev HIGH vol (10% dampening): rawCR 300% * 0.1 = 30% < MIN_CR → clamped to 100%.
     function testAdjustCR_HighVol_ClampedToMin_DirectCall() public view {
-        uint256 rawCR = 3e18;       // 300%
-        uint256 dampening = 1e17;   // HIGH vol
+        uint256 rawCR = 3e18; // 300%
+        uint256 dampening = 1e17; // HIGH vol
         uint256 adjusted = volatilityShield.adjustCR(rawCR, dampening);
         assertEq(adjusted, 1e18, "HIGH vol: adjustCR(300%, 0.1) clamped to MIN_CR=100%");
     }
 
     /// @dev Amplified dampening: rawCR 400% * 2 = 800% > MAX_CR → clamped to 500%.
     function testAdjustCR_AboveMaxCR_ClampedToMax_DirectCall() public view {
-        uint256 rawCR = 4e18;       // 400%
-        uint256 dampening = 2e18;   // amplifying
+        uint256 rawCR = 4e18; // 400%
+        uint256 dampening = 2e18; // amplifying
         uint256 adjusted = volatilityShield.adjustCR(rawCR, dampening);
         assertEq(adjusted, 5e18, "adjustCR(400%, 2.0) clamped to MAX_CR=500%");
     }

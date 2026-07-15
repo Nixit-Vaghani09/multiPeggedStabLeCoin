@@ -16,7 +16,6 @@ import {ERC20Mock} from "./mocks/ERC20Mock.sol";
 ///   getDampeningFactor()           → getDampeningFactor(chainId, collateral)
 ///   checkMintAllowed()             → checkMintAllowed(chainId, collateral, mintAmount, totalSupply)
 contract VolatilityShieldTest is Test {
-
     VolatilityShield volatilityShield;
     HelperConfig helperConfig;
     MockPyth mockPyth;
@@ -53,7 +52,8 @@ contract VolatilityShieldTest is Test {
 
     function testLowVolatilityBand() public view {
         // conf=10, price=2000 → V = 50 bps → LOW (< 200)
-        (uint256 V, VolatilityShield.VolatilityBand band) = volatilityShield.getVolatilityIndex(chainId, address(collateral));
+        (uint256 V, VolatilityShield.VolatilityBand band) =
+            volatilityShield.getVolatilityIndex(chainId, address(collateral));
         assertEq(V, 50, "V should be 50 bps");
         assertEq(uint256(band), uint256(VolatilityShield.VolatilityBand.LOW), "Should be LOW band");
     }
@@ -61,7 +61,8 @@ contract VolatilityShieldTest is Test {
     function testMediumVolatilityBand() public {
         // conf=60, price=2000 → V = 300 bps → MEDIUM (200 <= V < 500)
         mockPyth.setPrice(2000, 60, -2);
-        (uint256 V, VolatilityShield.VolatilityBand band) = volatilityShield.getVolatilityIndex(chainId, address(collateral));
+        (uint256 V, VolatilityShield.VolatilityBand band) =
+            volatilityShield.getVolatilityIndex(chainId, address(collateral));
         assertEq(V, 300, "V should be 300 bps");
         assertEq(uint256(band), uint256(VolatilityShield.VolatilityBand.MEDIUM), "Should be MEDIUM band");
     }
@@ -69,7 +70,8 @@ contract VolatilityShieldTest is Test {
     function testHighVolatilityBand() public {
         // conf=200, price=2000 → V = 1000 bps → HIGH (>= 500)
         mockPyth.setPrice(2000, 200, -2);
-        (uint256 V, VolatilityShield.VolatilityBand band) = volatilityShield.getVolatilityIndex(chainId, address(collateral));
+        (uint256 V, VolatilityShield.VolatilityBand band) =
+            volatilityShield.getVolatilityIndex(chainId, address(collateral));
         assertEq(V, 1000, "V should be 1000 bps");
         assertEq(uint256(band), uint256(VolatilityShield.VolatilityBand.HIGH), "Should be HIGH band");
     }
@@ -292,8 +294,6 @@ contract VolatilityShieldTest is Test {
         assertEq(volatilityShield.maxStaleness(), 120);
     }
 
-    
-    
     function testConstructorRevertsOnZeroHelperConfig() public {
         vm.expectRevert(VolatilityShield.VolatilityShield__ZeroAddress.selector);
         new VolatilityShield(address(0));
@@ -337,13 +337,19 @@ contract VolatilityShieldTest is Test {
         // addPythAddress sets the pyth oracle for a given chainId
         MockPyth newPyth = new MockPyth(3000, 20, -2);
         helperConfig.addPythAddress(chainId, address(newPyth));
-        assertEq(helperConfig.getPythAddress(chainId), address(newPyth), "getPythAddress should return newly added address");
+        assertEq(
+            helperConfig.getPythAddress(chainId), address(newPyth), "getPythAddress should return newly added address"
+        );
     }
 
     function testUpdatePythAddress() public {
         MockPyth newPyth = new MockPyth(3000, 20, -2);
         helperConfig.updatePythAddress(chainId, address(newPyth));
-        assertEq(helperConfig.getPythAddress(chainId), address(newPyth), "updatePythAddress should overwrite existing address");
+        assertEq(
+            helperConfig.getPythAddress(chainId),
+            address(newPyth),
+            "updatePythAddress should overwrite existing address"
+        );
     }
 
     function testAddPythAddressRevertsIfZero() public {
@@ -391,8 +397,8 @@ contract VolatilityShieldTest is Test {
     /// @dev LOW vol: dampeningFactor = 1e18 (no dampening).
     ///      rawCR = 2e18 (200%). adjusted = 2e18 * 1e18 / 1e18 = 2e18 → in range → returned as-is.
     function testAdjustCR_LowVol_InRange() public view {
-        uint256 rawCR = 2e18;        // 200%
-        uint256 dampening = 1e18;    // LOW vol → no dampening
+        uint256 rawCR = 2e18; // 200%
+        uint256 dampening = 1e18; // LOW vol → no dampening
         uint256 adjusted = volatilityShield.adjustCR(rawCR, dampening);
         assertEq(adjusted, 2e18, "LOW vol: CR should stay at 200%");
     }
@@ -400,8 +406,8 @@ contract VolatilityShieldTest is Test {
     /// @dev MEDIUM vol: dampeningFactor = 0.5e18.
     ///      rawCR = 3e18 (300%). adjusted = 3e18 * 0.5e18 / 1e18 = 1.5e18 → in range.
     function testAdjustCR_MediumVol_InRange() public view {
-        uint256 rawCR = 3e18;          // 300%
-        uint256 dampening = 5e17;      // MEDIUM vol → 50% dampening
+        uint256 rawCR = 3e18; // 300%
+        uint256 dampening = 5e17; // MEDIUM vol → 50% dampening
         uint256 adjusted = volatilityShield.adjustCR(rawCR, dampening);
         assertEq(adjusted, 15e17, "MEDIUM vol: CR should be halved to 150%");
     }
@@ -409,8 +415,8 @@ contract VolatilityShieldTest is Test {
     /// @dev HIGH vol: dampeningFactor = 0.1e18.
     ///      rawCR = 3e18 (300%). adjusted = 3e18 * 0.1e18 / 1e18 = 0.3e18 < MIN_CR(1e18) → clamped to 1e18.
     function testAdjustCR_HighVol_ClampedToMinCR() public view {
-        uint256 rawCR = 3e18;         // 300%
-        uint256 dampening = 1e17;     // HIGH vol → 90% dampening
+        uint256 rawCR = 3e18; // 300%
+        uint256 dampening = 1e17; // HIGH vol → 90% dampening
         uint256 adjusted = volatilityShield.adjustCR(rawCR, dampening);
         // 3e18 * 1e17 / 1e18 = 0.3e18 < MIN_CR (1e18) → clamped
         assertEq(adjusted, 1e18, "HIGH vol: CR below MIN_CR should be clamped to 1e18 (100%)");
@@ -420,8 +426,8 @@ contract VolatilityShieldTest is Test {
     ///      adjusted = 6e18 → clamped to MAX_CR = 5e18.
     function testAdjustCR_AboveMaxCR_ClampedToMaxCR() public view {
         // Dampening > 1 simulates an amplifying factor
-        uint256 rawCR = 4e18;         // 400%
-        uint256 dampening = 2e18;     // amplify × 2 → 8e18 > MAX_CR
+        uint256 rawCR = 4e18; // 400%
+        uint256 dampening = 2e18; // amplify × 2 → 8e18 > MAX_CR
         uint256 adjusted = volatilityShield.adjustCR(rawCR, dampening);
         assertEq(adjusted, 5e18, "CR above MAX_CR should be clamped to 5e18 (500%)");
     }
@@ -429,8 +435,8 @@ contract VolatilityShieldTest is Test {
     /// @dev Identity check: dampening = 1e18 and rawCR right on the boundary.
     ///      MIN_CR < rawCR < MAX_CR → value passes through unchanged.
     function testAdjustCR_NoDampening_RetainsRawCR() public view {
-        uint256 rawCR = 25e17;        // 250% — well within [100%, 500%]
-        uint256 dampening = 1e18;     // identity
+        uint256 rawCR = 25e17; // 250% — well within [100%, 500%]
+        uint256 dampening = 1e18; // identity
         uint256 adjusted = volatilityShield.adjustCR(rawCR, dampening);
         assertEq(adjusted, 25e17, "Identity dampening should return rawCR unchanged");
     }
@@ -438,7 +444,7 @@ contract VolatilityShieldTest is Test {
     /// @dev Boundary: adjusted exactly at MIN_CR (1e18) — should NOT be clamped.
     function testAdjustCR_ExactlyMinCR_NotClamped() public view {
         uint256 rawCR = 2e18;
-        uint256 dampening = 5e17;   // 2e18 * 5e17 / 1e18 = 1e18 exactly
+        uint256 dampening = 5e17; // 2e18 * 5e17 / 1e18 = 1e18 exactly
         uint256 adjusted = volatilityShield.adjustCR(rawCR, dampening);
         // adjusted == MIN_CR → condition is `adjusted < MIN_CR` so no clamp
         assertEq(adjusted, 1e18, "Adjusted exactly at MIN_CR should not be clamped");
@@ -447,7 +453,7 @@ contract VolatilityShieldTest is Test {
     /// @dev Boundary: adjusted exactly at MAX_CR (5e18) — should NOT be clamped.
     function testAdjustCR_ExactlyMaxCR_NotClamped() public view {
         uint256 rawCR = 5e18;
-        uint256 dampening = 1e18;   // 5e18 * 1e18 / 1e18 = 5e18 exactly
+        uint256 dampening = 1e18; // 5e18 * 1e18 / 1e18 = 5e18 exactly
         uint256 adjusted = volatilityShield.adjustCR(rawCR, dampening);
         // adjusted == MAX_CR → condition is `adjusted > MAX_CR` so no clamp
         assertEq(adjusted, 5e18, "Adjusted exactly at MAX_CR should not be clamped");

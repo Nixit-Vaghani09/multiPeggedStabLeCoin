@@ -20,16 +20,12 @@ contract HelperConfigTest is Test {
     bytes32 constant PYTH_ID_1 = bytes32(uint256(1));
     bytes32 constant PYTH_ID_2 = bytes32(uint256(2));
 
-    event CollateralAdded(
-        uint256 chainId,
-        address collateral,
-        address pricefeed
-    );
+    event CollateralAdded(uint256 chainId, address collateral, address pricefeed);
 
     function setUp() public {
         chainId = block.chainid;
         helperConfig = new HelperConfig();
-        
+
         collateral = new ERC20Mock("Token1", "TK1", owner, 1000 ether);
         collateral2 = new ERC20Mock("Token2", "TK2", owner, 1000 ether);
 
@@ -50,7 +46,7 @@ contract HelperConfigTest is Test {
     function testNonOwnerCannotUpdatePythId() public {
         vm.prank(nonOwner);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, nonOwner));
-        helperConfig.updatePythId( address(collateral), PYTH_ID_2);
+        helperConfig.updatePythId(address(collateral), PYTH_ID_2);
     }
 
     function testNonOwnerCannotUpdatePriceFeed() public {
@@ -95,24 +91,24 @@ contract HelperConfigTest is Test {
 
     function testUpdatePythId() public {
         helperConfig.addCollateral(chainId, address(collateral), address(mockV3Aggregator), PYTH_ID_1);
-        
-        helperConfig.updatePythId( address(collateral), PYTH_ID_2);
+
+        helperConfig.updatePythId(address(collateral), PYTH_ID_2);
         assertEq(helperConfig.getPythPriceId(address(collateral), chainId), PYTH_ID_2);
     }
 
     function testUpdatePriceFeed() public {
         helperConfig.addCollateral(chainId, address(collateral), address(mockV3Aggregator), PYTH_ID_1);
-        
+
         helperConfig.updatePriceFeed(chainId, address(collateral), address(mockV3Aggregator8Decimals));
-        (address feed, ) = helperConfig.getFeed(chainId, address(collateral));
+        (address feed,) = helperConfig.getFeed(chainId, address(collateral));
         assertEq(feed, address(mockV3Aggregator8Decimals));
     }
 
     function testSetCollateralEnabled() public {
         helperConfig.addCollateral(chainId, address(collateral), address(mockV3Aggregator), PYTH_ID_1);
-        
+
         assertTrue(helperConfig.getCollateralAllowed(chainId, address(collateral)));
-        
+
         helperConfig.setCollateralEnabled(chainId, address(collateral), false);
         assertFalse(helperConfig.getCollateralAllowed(chainId, address(collateral)));
     }
@@ -128,7 +124,7 @@ contract HelperConfigTest is Test {
 
     function testGetCollateralPriceRevertsIfPriceZeroOrNegative() public {
         helperConfig.addCollateral(chainId, address(collateral), address(mockV3Aggregator), PYTH_ID_1);
-        
+
         mockV3Aggregator.updateAnswer(0);
         vm.expectRevert(HelperConfig.HelperConfig__PriceMustBeGreateThanZero.selector);
         helperConfig.getCollateralPrice(chainId, address(collateral));
@@ -205,7 +201,6 @@ contract HelperConfigTest is Test {
         vm.expectRevert(HelperConfig.HelperConfig__CollateralDoesntExsist.selector);
         helperConfig.getPythPriceId(address(collateral), chainId);
     }
-
 
     function testGetCollateralAllowed() public {
         helperConfig.addCollateral(chainId, address(collateral), address(mockV3Aggregator), PYTH_ID_1);

@@ -8,7 +8,6 @@ import {PythStructs} from "@pythnetwork/pyth-sdk-solidity/PythStructs.sol";
 /// @notice Mock implementation of the Pyth oracle interface for testing.
 /// @dev Allows tests to set arbitrary price, confidence, exponent, and publish time values.
 contract MockPyth is IPyth {
-
     int64 private _price;
     uint64 private _conf;
     int32 private _expo;
@@ -47,12 +46,7 @@ contract MockPyth is IPyth {
         if (block.timestamp - _publishTime > age) {
             revert StalePrice();
         }
-        return PythStructs.Price({
-            price: _price,
-            conf: _conf,
-            expo: _expo,
-            publishTime: _publishTime
-        });
+        return PythStructs.Price({price: _price, conf: _conf, expo: _expo, publishTime: _publishTime});
     }
 
     function getPriceUnsafe(bytes32) external view override returns (PythStructs.Price memory) {
@@ -63,7 +57,7 @@ contract MockPyth is IPyth {
         revert("Not implemented");
     }
 
-    function getEmaPriceNoOlderThan(bytes32, uint) external view override returns (PythStructs.Price memory) {
+    function getEmaPriceNoOlderThan(bytes32, uint256) external view override returns (PythStructs.Price memory) {
         revert("Not implemented");
     }
 
@@ -71,31 +65,55 @@ contract MockPyth is IPyth {
         revert("Not implemented");
     }
 
-    function updatePriceFeedsIfNecessary(bytes[] calldata, bytes32[] calldata, uint64[] calldata) external payable override {
+    function updatePriceFeedsIfNecessary(bytes[] calldata, bytes32[] calldata, uint64[] calldata)
+        external
+        payable
+        override
+    {
         revert("Not implemented");
     }
 
-    function getUpdateFee(bytes[] calldata) external view override returns (uint) {
+    function getUpdateFee(bytes[] calldata) external view override returns (uint256) {
         revert("Not implemented");
     }
 
-    function getTwapUpdateFee(bytes[] calldata) external view override returns (uint) {
+    function getTwapUpdateFee(bytes[] calldata) external view override returns (uint256) {
         revert("Not implemented");
     }
 
-    function parsePriceFeedUpdates(bytes[] calldata, bytes32[] calldata, uint64, uint64) external payable override returns (PythStructs.PriceFeed[] memory) {
+    function parsePriceFeedUpdates(bytes[] calldata, bytes32[] calldata, uint64, uint64)
+        external
+        payable
+        override
+        returns (PythStructs.PriceFeed[] memory)
+    {
         revert("Not implemented");
     }
 
-    function parsePriceFeedUpdatesUnique(bytes[] calldata, bytes32[] calldata, uint64, uint64) external payable override returns (PythStructs.PriceFeed[] memory) {
+    function parsePriceFeedUpdatesUnique(bytes[] calldata, bytes32[] calldata, uint64, uint64)
+        external
+        payable
+        override
+        returns (PythStructs.PriceFeed[] memory)
+    {
         revert("Not implemented");
     }
 
-    function parsePriceFeedUpdatesWithConfig(bytes[] calldata, bytes32[] calldata, uint64, uint64, bool, bool, bool) external payable override returns (PythStructs.PriceFeed[] memory, uint64[] memory) {
+    function parsePriceFeedUpdatesWithConfig(bytes[] calldata, bytes32[] calldata, uint64, uint64, bool, bool, bool)
+        external
+        payable
+        override
+        returns (PythStructs.PriceFeed[] memory, uint64[] memory)
+    {
         revert("Not implemented");
     }
 
-    function parseTwapPriceFeedUpdates(bytes[] calldata, bytes32[] calldata) external payable override returns (PythStructs.TwapPriceFeed[] memory) {
+    function parseTwapPriceFeedUpdates(bytes[] calldata, bytes32[] calldata)
+        external
+        payable
+        override
+        returns (PythStructs.TwapPriceFeed[] memory)
+    {
         revert("Not implemented");
     }
 }

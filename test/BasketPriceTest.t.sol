@@ -43,7 +43,7 @@ contract BasketPriceTest is Test {
         helperConfig.addCollateral(chainId, address(collateral2), address(mockV3Aggregator2), PRICE_ID);
 
         mockPyth = new MockPyth(2000, 10, -2);
-        helperConfig.addPythAddress(chainId,address(mockPyth));
+        helperConfig.addPythAddress(chainId, address(mockPyth));
 
         // Deploy MockPyth (LOW vol)
 
@@ -183,8 +183,7 @@ contract BasketPriceTest is Test {
         assertTrue(vsAddr != address(0), "VolatilityShield should be deployed");
     }
 
-
     function testGetPrecision() public {
-        assertEq(1e18,basket.getPrecision());
+        assertEq(1e18, basket.getPrecision());
     }
 }

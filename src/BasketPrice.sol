@@ -33,7 +33,7 @@ contract BasketPrice is Ownable {
         return PRECISION;
     }
 
-    constructor(address _helperConfig,address _volatilityShield) Ownable(msg.sender) {
+    constructor(address _helperConfig, address _volatilityShield) Ownable(msg.sender) {
         helperConfig = HelperConfig(_helperConfig);
         volatilityShield = VolatilityShield(_volatilityShield);
     }
@@ -45,7 +45,7 @@ contract BasketPrice is Ownable {
     /// @param collateral The address of the collateral token
     /// @param weight The weight assigned to this collateral in the basket calculation
     function addCollateral(address collateral, uint256 weight) external onlyOwner {
-        for (uint i = 0; i < basketCollaterals[block.chainid].length; i++) {
+        for (uint256 i = 0; i < basketCollaterals[block.chainid].length; i++) {
             if (basketCollaterals[block.chainid][i] == collateral) {
                 revert BasketPrice__FeedAlreadyExists();
             }
@@ -63,7 +63,7 @@ contract BasketPrice is Ownable {
         uint256 total = 0;
         uint256 totalWeight = 0;
 
-        for (uint i = 0; i < basketCollaterals[chainId].length; i++) {
+        for (uint256 i = 0; i < basketCollaterals[chainId].length; i++) {
             (uint256 price, uint8 decimals) = _getPrice(chainId, i);
 
             // Normalize to 18 decimals
@@ -77,7 +77,7 @@ contract BasketPrice is Ownable {
         }
         uint256 basketPrice = total / totalWeight;
         uint256 damp = volatilityShield.getSystemDampeningFactor(chainId);
-        return (basketPrice * damp)/PRECISION;
+        return (basketPrice * damp) / PRECISION;
     }
 
     /// @notice Helper function to fetch price and decimals from a Chainlink feed for a collateral
@@ -88,7 +88,7 @@ contract BasketPrice is Ownable {
     function _getPrice(uint256 chainId, uint256 index) internal view returns (uint256, uint8) {
         address collateral = basketCollaterals[chainId][index];
         (address priceFeed, uint8 decimals) = helperConfig.getFeed(chainId, collateral);
-        (, int256 price, , , ) = AggregatorV3Interface(priceFeed).latestRoundData();
+        (, int256 price,,,) = AggregatorV3Interface(priceFeed).latestRoundData();
         return (uint256(price), decimals);
     }
 
@@ -97,7 +97,7 @@ contract BasketPrice is Ownable {
     /// @param weight The new weight value
     function changeWeight(address collateral, uint256 weight) external onlyOwner {
         bool exists = false;
-        for (uint i = 0; i < basketCollaterals[block.chainid].length; i++) {
+        for (uint256 i = 0; i < basketCollaterals[block.chainid].length; i++) {
             if (basketCollaterals[block.chainid][i] == collateral) {
                 exists = true;
                 break;
@@ -129,7 +129,7 @@ contract BasketPrice is Ownable {
     /// @param collateral The collateral token address
     /// @return feed The price feed address
     function getCollateralFeed(address collateral) external view returns (address) {
-        (address feed, ) = helperConfig.getFeed(block.chainid, collateral);
+        (address feed,) = helperConfig.getFeed(block.chainid, collateral);
         return feed;
     }
 }

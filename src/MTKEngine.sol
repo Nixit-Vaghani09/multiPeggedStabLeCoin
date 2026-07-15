@@ -16,8 +16,7 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 ///      Integrates VolatilityShield for volatility-aware collateral ratio scaling.
 ///      Implements Health Factor tracking and Liquidation engine.
 
-contract MTKEngine is ReentrancyGuard{
-
+contract MTKEngine is ReentrancyGuard {
     // ──────────────────────────────────────────────
     //  Errors
     // ──────────────────────────────────────────────
@@ -46,17 +45,31 @@ contract MTKEngine is ReentrancyGuard{
     // ──────────────────────────────────────────────
 
     /// @notice emitted when collateral is deposited successfully
-    event DepositedSuccessfully(address indexed user, address indexed collateral, uint256 collateralAmount, uint256 tokenAmountMinted);
+    event DepositedSuccessfully(
+        address indexed user, address indexed collateral, uint256 collateralAmount, uint256 tokenAmountMinted
+    );
     /// @notice emitted when collateral is withdrawn successfully by burning MTK
-    event WithdrawSuccessful(address indexed user, address indexed collateral, uint256 burnAmount, uint256 collateralReturned);
+    event WithdrawSuccessful(
+        address indexed user, address indexed collateral, uint256 burnAmount, uint256 collateralReturned
+    );
     /// @notice emitted when collateral is redeemed without burning MTK
     event CollateralRedeemed(address indexed user, address indexed collateral, uint256 indexed amount, uint256 chainId);
     /// @notice emitted when a deposit is adjusted by the volatility shield
-    event VolatilityAdjustedDeposit(address indexed user, uint256 volatilityIndex, uint256 effectiveCR, uint256 dampenedMint);
+    event VolatilityAdjustedDeposit(
+        address indexed user, uint256 volatilityIndex, uint256 effectiveCR, uint256 dampenedMint
+    );
     /// @notice emitted when an under-collateralized position is liquidated
-    event Liquidated(address indexed liquidator, address indexed user, address indexed collateral, uint256 debtCovered, uint256 collateralRewarded);
+    event Liquidated(
+        address indexed liquidator,
+        address indexed user,
+        address indexed collateral,
+        uint256 debtCovered,
+        uint256 collateralRewarded
+    );
     /// @notice emitted when collateral is deposited without minting
-    event DepositedCollateralSuccessfully(address indexed depositor, address indexed collateral, uint256 indexed amount);
+    event DepositedCollateralSuccessfully(
+        address indexed depositor, address indexed collateral, uint256 indexed amount
+    );
 
     // ──────────────────────────────────────────────
     //  State Variables
@@ -77,16 +90,15 @@ contract MTKEngine is ReentrancyGuard{
 
     // Liquidation Constants
     uint256 private constant LIQUIDATION_THRESHOLD = 15e17; // 150%
-    uint256 public  liquidation_bonus = 1e17;      // 10%
+    uint256 public liquidation_bonus = 1e17; // 10%
     uint256 private constant PRECISION = 1e18;
 
     uint256 private constant MIN_CR = 1e18;
     uint256 private constant MAX_CR = 5e18;
 
-    uint256 private constant MIN_BASKETPRICE=1;
-    uint256 private constant MAX_BASKETPRICE= 1e12;
+    uint256 private constant MIN_BASKETPRICE = 1;
+    uint256 private constant MAX_BASKETPRICE = 1e12;
 
-    
     /// @notice mapping : user -> chainId -> collateral -> balance
     mapping(address => mapping(uint256 => mapping(address => uint256))) public userCollateralBalance;
 
@@ -145,7 +157,7 @@ contract MTKEngine is ReentrancyGuard{
             revert MTKEngine__MintingRestrictedHighVolatility();
         }
 
-        (uint256 volatilityIndex, ) = volatilityShield.getVolatilityIndex(chainId, collateral);
+        (uint256 volatilityIndex,) = volatilityShield.getVolatilityIndex(chainId, collateral);
 
         mtk.mint(msg.sender, tokenAmount);
         userDebtBalance[msg.sender] += tokenAmount;
@@ -199,8 +211,12 @@ contract MTKEngine is ReentrancyGuard{
     /// @param amount The amount of collateral to redeem (must be > 0)
     function redeemCollateral(address collateral, uint256 amount) public nonReentrant {
         if (amount == 0) revert MTKEngine__AmountMustBeMoreThanZero();
-        if (helperConfig.getCollateralAllowed(block.chainid, collateral) == false) revert MTKEngine__CollateralNotAllowed();
-        if (amount > userCollateralBalance[msg.sender][block.chainid][collateral]) revert MTKEngine__NotEnoughCollateralBalance();
+        if (helperConfig.getCollateralAllowed(block.chainid, collateral) == false) {
+            revert MTKEngine__CollateralNotAllowed();
+        }
+        if (amount > userCollateralBalance[msg.sender][block.chainid][collateral]) {
+            revert MTKEngine__NotEnoughCollateralBalance();
+        }
 
         userCollateralBalance[msg.sender][block.chainid][collateral] -= amount;
         emit CollateralRedeemed(msg.sender, collateral, amount, block.chainid);
@@ -281,7 +297,11 @@ contract MTKEngine is ReentrancyGuard{
     }
 
     /// @notice Get total collateral value in USD and total MTK debt for a user
-    function getAccountInformation(address user) public view returns (uint256 totalCollateralValueUSD, uint256 totalDebt) {
+    function getAccountInformation(address user)
+        public
+        view
+        returns (uint256 totalCollateralValueUSD, uint256 totalDebt)
+    {
         totalDebt = userDebtBalance[user];
         uint256 chainId = block.chainid;
         address[] memory collaterals = helperConfig.getEnabledCollaterals(chainId);
@@ -298,9 +318,6 @@ contract MTKEngine is ReentrancyGuard{
     function getHealthFactor() external view returns (uint256) {
         return _healthFactor(msg.sender);
     }
-
-    
-
 
     /// @notice Computes user's Health Factor
     /// @dev Returns (maxDebtAllowed * 1e18) / (debtInUSD). Values >= LIQUIDATION_THRESHOLD are healthy.
@@ -343,19 +360,16 @@ contract MTKEngine is ReentrancyGuard{
         return PRECISION;
     }
 
-    function _effectiveCR(uint256 debtValue , uint256 collateralValue) internal pure returns(uint256) {
-        if(debtValue == 0) return type(uint256).max;
-        uint256 cr= (collateralValue *PRECISION) / debtValue;
-        require(cr > MIN_CR,"Collateral Ratio less than minimum value of 100%");
-        require(cr < MAX_CR,"Collateral Ratio more than maximum value of 500%");
+    function _effectiveCR(uint256 debtValue, uint256 collateralValue) internal pure returns (uint256) {
+        if (debtValue == 0) return type(uint256).max;
+        uint256 cr = (collateralValue * PRECISION) / debtValue;
+        require(cr > MIN_CR, "Collateral Ratio less than minimum value of 100%");
+        require(cr < MAX_CR, "Collateral Ratio more than maximum value of 500%");
         return cr;
     }
 
     function _validateBasketPrice(uint256 price) internal pure {
-        require (MIN_BASKETPRICE * PRECISION <=price , "basket price is too low");
-        require( MAX_BASKETPRICE * PRECISION >=price , "basket price is too high");
+        require(MIN_BASKETPRICE * PRECISION <= price, "basket price is too low");
+        require(MAX_BASKETPRICE * PRECISION >= price, "basket price is too high");
     }
-
-    
-
 }
