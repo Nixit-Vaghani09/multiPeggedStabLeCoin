@@ -5,6 +5,7 @@ import {Test} from "lib/forge-std/src/Test.sol";
 import {BasketPrice} from "src/BasketPrice.sol";
 import {HelperConfig} from "script/HelperConfig.s.sol";
 import {MockV3Aggregator} from "./mocks/MockV3Aggregator.sol";
+import {VolatilityShield} from "src/VolatilityShield.sol";
 import {MockPyth} from "./mocks/MockPyth.sol";
 import {ERC20Mock} from "./mocks/ERC20Mock.sol";
 
@@ -41,11 +42,15 @@ contract BasketPriceTest is Test {
         helperConfig.addCollateral(chainId, address(collateral), address(mockV3Aggregator), PRICE_ID);
         helperConfig.addCollateral(chainId, address(collateral2), address(mockV3Aggregator2), PRICE_ID);
 
-        // Deploy MockPyth (LOW vol)
         mockPyth = new MockPyth(2000, 10, -2);
+        helperConfig.addPythAddress(chainId,address(mockPyth));
+
+        // Deploy MockPyth (LOW vol)
+
+        VolatilityShield volatilityShield = new VolatilityShield(address(helperConfig));
 
         // Deploy BasketPrice (requires helperConfig + pyth address)
-        basket = new BasketPrice(address(helperConfig), address(mockPyth));
+        basket = new BasketPrice(address(helperConfig), address(volatilityShield));
     }
 
     // ──────────────────────────────────────────────

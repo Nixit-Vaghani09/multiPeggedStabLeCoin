@@ -42,7 +42,9 @@ contract VolatilityShieldTest is Test {
 
         // Default: price = 2000, conf = 10 → V = (10 * 10000) / 2000 = 50 bps → LOW
         mockPyth = new MockPyth(2000, 10, -2);
-        volatilityShield = new VolatilityShield(address(helperConfig), address(mockPyth));
+        // Register pyth address in HelperConfig (new design: pyth resolved per chainId)
+        helperConfig.addPythAddress(chainId, address(mockPyth));
+        volatilityShield = new VolatilityShield(address(helperConfig));
     }
 
     // ──────────────────────────────────────────────
@@ -290,28 +292,15 @@ contract VolatilityShieldTest is Test {
         assertEq(volatilityShield.maxStaleness(), 120);
     }
 
-    function testOwnerCanUpdatePythConfig() public {
-        address newPyth = makeAddr("newPyth");
-        bytes32 newId = bytes32(uint256(42));
-        volatilityShield.setPythConfig(newPyth, newId);
-        assertEq(address(volatilityShield.pyth()), newPyth);
-        assertEq(volatilityShield.pythPriceId(), newId);
-    }
-
-    function testSetPythConfigRevertsOnZeroAddress() public {
-        vm.expectRevert(VolatilityShield.VolatilityShield__ZeroAddress.selector);
-        volatilityShield.setPythConfig(address(0), PRICE_ID);
-    }
-
+    
+    
     function testConstructorRevertsOnZeroHelperConfig() public {
         vm.expectRevert(VolatilityShield.VolatilityShield__ZeroAddress.selector);
-        new VolatilityShield(address(0), address(mockPyth));
+        new VolatilityShield(address(0));
     }
 
-    function testConstructorRevertsOnZeroPythAddress() public {
-        vm.expectRevert(VolatilityShield.VolatilityShield__ZeroAddress.selector);
-        new VolatilityShield(address(helperConfig), address(0));
-    }
+    // ── Pyth address is no longer a constructor arg; it is stored per-chainId in HelperConfig.
+    // testConstructorRevertsOnZeroPythAddress removed — constructor no longer accepts _pythAddress.
 
     // ──────────────────────────────────────────────
     //  Events
@@ -341,12 +330,25 @@ contract VolatilityShieldTest is Test {
         volatilityShield.setMaxStaleness(120);
     }
 
-    function testPythConfigUpdatedEvent() public {
-        address newPyth = makeAddr("newPyth");
-        bytes32 newId = bytes32(uint256(42));
-        vm.expectEmit(false, false, false, true);
-        emit VolatilityShield.PythConfigUpdated(newPyth, newId);
-        volatilityShield.setPythConfig(newPyth, newId);
+    // testPythConfigUpdatedEvent removed — setPythConfig was deleted in the new design.
+    // Pyth address management is now done through HelperConfig.addPythAddress / updatePythAddress.
+
+    function testAddPythAddressAndGet() public {
+        // addPythAddress sets the pyth oracle for a given chainId
+        MockPyth newPyth = new MockPyth(3000, 20, -2);
+        helperConfig.addPythAddress(chainId, address(newPyth));
+        assertEq(helperConfig.getPythAddress(chainId), address(newPyth), "getPythAddress should return newly added address");
+    }
+
+    function testUpdatePythAddress() public {
+        MockPyth newPyth = new MockPyth(3000, 20, -2);
+        helperConfig.updatePythAddress(chainId, address(newPyth));
+        assertEq(helperConfig.getPythAddress(chainId), address(newPyth), "updatePythAddress should overwrite existing address");
+    }
+
+    function testAddPythAddressRevertsIfZero() public {
+        vm.expectRevert(HelperConfig.HelperConfig__addressCantBeZero.selector);
+        helperConfig.addPythAddress(chainId, address(0));
     }
 
     // ──────────────────────────────────────────────
@@ -380,6 +382,75 @@ contract VolatilityShieldTest is Test {
 
     function testGetPrecision() public view {
         assertEq(volatilityShield.getPrecision(), 1e18);
+    }
+
+    // ──────────────────────────────────────────────
+    //  adjustCR Tests
+    // ──────────────────────────────────────────────
+
+    /// @dev LOW vol: dampeningFactor = 1e18 (no dampening).
+    ///      rawCR = 2e18 (200%). adjusted = 2e18 * 1e18 / 1e18 = 2e18 → in range → returned as-is.
+    function testAdjustCR_LowVol_InRange() public view {
+        uint256 rawCR = 2e18;        // 200%
+        uint256 dampening = 1e18;    // LOW vol → no dampening
+        uint256 adjusted = volatilityShield.adjustCR(rawCR, dampening);
+        assertEq(adjusted, 2e18, "LOW vol: CR should stay at 200%");
+    }
+
+    /// @dev MEDIUM vol: dampeningFactor = 0.5e18.
+    ///      rawCR = 3e18 (300%). adjusted = 3e18 * 0.5e18 / 1e18 = 1.5e18 → in range.
+    function testAdjustCR_MediumVol_InRange() public view {
+        uint256 rawCR = 3e18;          // 300%
+        uint256 dampening = 5e17;      // MEDIUM vol → 50% dampening
+        uint256 adjusted = volatilityShield.adjustCR(rawCR, dampening);
+        assertEq(adjusted, 15e17, "MEDIUM vol: CR should be halved to 150%");
+    }
+
+    /// @dev HIGH vol: dampeningFactor = 0.1e18.
+    ///      rawCR = 3e18 (300%). adjusted = 3e18 * 0.1e18 / 1e18 = 0.3e18 < MIN_CR(1e18) → clamped to 1e18.
+    function testAdjustCR_HighVol_ClampedToMinCR() public view {
+        uint256 rawCR = 3e18;         // 300%
+        uint256 dampening = 1e17;     // HIGH vol → 90% dampening
+        uint256 adjusted = volatilityShield.adjustCR(rawCR, dampening);
+        // 3e18 * 1e17 / 1e18 = 0.3e18 < MIN_CR (1e18) → clamped
+        assertEq(adjusted, 1e18, "HIGH vol: CR below MIN_CR should be clamped to 1e18 (100%)");
+    }
+
+    /// @dev rawCR is pushed above MAX_CR (5e18) by a very large dampening factor.
+    ///      adjusted = 6e18 → clamped to MAX_CR = 5e18.
+    function testAdjustCR_AboveMaxCR_ClampedToMaxCR() public view {
+        // Dampening > 1 simulates an amplifying factor
+        uint256 rawCR = 4e18;         // 400%
+        uint256 dampening = 2e18;     // amplify × 2 → 8e18 > MAX_CR
+        uint256 adjusted = volatilityShield.adjustCR(rawCR, dampening);
+        assertEq(adjusted, 5e18, "CR above MAX_CR should be clamped to 5e18 (500%)");
+    }
+
+    /// @dev Identity check: dampening = 1e18 and rawCR right on the boundary.
+    ///      MIN_CR < rawCR < MAX_CR → value passes through unchanged.
+    function testAdjustCR_NoDampening_RetainsRawCR() public view {
+        uint256 rawCR = 25e17;        // 250% — well within [100%, 500%]
+        uint256 dampening = 1e18;     // identity
+        uint256 adjusted = volatilityShield.adjustCR(rawCR, dampening);
+        assertEq(adjusted, 25e17, "Identity dampening should return rawCR unchanged");
+    }
+
+    /// @dev Boundary: adjusted exactly at MIN_CR (1e18) — should NOT be clamped.
+    function testAdjustCR_ExactlyMinCR_NotClamped() public view {
+        uint256 rawCR = 2e18;
+        uint256 dampening = 5e17;   // 2e18 * 5e17 / 1e18 = 1e18 exactly
+        uint256 adjusted = volatilityShield.adjustCR(rawCR, dampening);
+        // adjusted == MIN_CR → condition is `adjusted < MIN_CR` so no clamp
+        assertEq(adjusted, 1e18, "Adjusted exactly at MIN_CR should not be clamped");
+    }
+
+    /// @dev Boundary: adjusted exactly at MAX_CR (5e18) — should NOT be clamped.
+    function testAdjustCR_ExactlyMaxCR_NotClamped() public view {
+        uint256 rawCR = 5e18;
+        uint256 dampening = 1e18;   // 5e18 * 1e18 / 1e18 = 5e18 exactly
+        uint256 adjusted = volatilityShield.adjustCR(rawCR, dampening);
+        // adjusted == MAX_CR → condition is `adjusted > MAX_CR` so no clamp
+        assertEq(adjusted, 5e18, "Adjusted exactly at MAX_CR should not be clamped");
     }
 }
 

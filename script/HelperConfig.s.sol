@@ -20,7 +20,6 @@ contract HelperConfig is Script, Ownable {
 
     struct CollateralConfig {
         address priceFeed;
-        bytes32 pythPriceId;
         uint8 decimals;
         bool allowed;
     }
@@ -28,6 +27,8 @@ contract HelperConfig is Script, Ownable {
     mapping(uint256 chainId => mapping(address => CollateralConfig))
         private collateralConfigs;
     mapping(uint256 chainId => address[]) private allCollaterals;
+    mapping(uint256 chainId => address) pythAddresses;
+    mapping(address collateral => bytes32 pythId) pythIds;
 
     // _______________________________________________________________
     //                  update functions
@@ -45,20 +46,35 @@ contract HelperConfig is Script, Ownable {
         uint8 collateralDecimals = AggregatorV3Interface(pricefeed).decimals();
         collateralConfigs[chainId][collateral] = CollateralConfig({
             priceFeed: pricefeed,
-            pythPriceId: pythPriceId,
             decimals: collateralDecimals,
             allowed: true
         });
+        pythIds[collateral] = pythPriceId;
         allCollaterals[chainId].push(collateral);
         emit CollateralAdded(chainId, collateral, pricefeed);
     }
 
-    function updatePythId(uint256 chainId, address collateral, bytes32 pythId) external onlyOwner {
-        collateralConfigs[chainId][collateral].pythPriceId = pythId;
+    function addPythAddress(uint256 chainId,address pythAddress) public onlyOwner {
+        if(pythAddress == address(0))
+        revert HelperConfig__addressCantBeZero();
+        pythAddresses[chainId] = pythAddress;
+    }
+
+    function updatePythId(address collateral, bytes32 pythId) external onlyOwner {
+        
+        pythIds[collateral] = pythId;
     }
 
     function updatePriceFeed(uint256 chainId, address collateral, address priceFeed) external onlyOwner {
+        if(collateral == address(0) || priceFeed == address(0))
+        {
+            revert HelperConfig__addressCantBeZero();
+        }
         collateralConfigs[chainId][collateral].priceFeed = priceFeed;
+    }
+
+    function updatePythAddress(uint256 chainId,address pythAddress) public onlyOwner {
+        pythAddresses[chainId] = pythAddress;
     }
 
     function setCollateralEnabled(
@@ -169,12 +185,15 @@ contract HelperConfig is Script, Ownable {
     //________________________pythId__________________________
 
     function getPythPriceId(
-        address collateral,
-        uint256 chainId
+        address collateral,uint256 chainId
     ) external view returns (bytes32) {
         if (collateralConfigs[chainId][collateral].allowed == false) {
             revert HelperConfig__CollateralDoesntExsist();
         }
-        return collateralConfigs[chainId][collateral].pythPriceId;
+        return pythIds[collateral];
+    }
+
+    function getPythAddress(uint256 chainId) external view returns(address) {
+        return pythAddresses[chainId];
     }
 }

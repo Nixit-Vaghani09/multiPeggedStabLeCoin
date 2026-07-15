@@ -323,10 +323,12 @@ contract MTKEngine is ReentrancyGuard{
         uint256 basketPrice = basket.getBasketPrice(chainId);
         _validateBasketPrice(basketPrice);
 
-        // healthFactor = collateralValueUSD * PRECISION / (debt * basketPrice / PRECISION)
+        // healthFactor = shieldedCR (collateral ratio dampened by current volatility)
         uint256 debtValueUSD = (debt * basketPrice) / PRECISION;
-        return _effectiveCR(debtValueUSD,totalCollateralValueUSD);
-        
+        uint256 rawCR = _effectiveCR(debtValueUSD, totalCollateralValueUSD);
+        uint256 dampeningFactor = volatilityShield.getSystemDampeningFactor(chainId);
+        uint256 shieldedCR = volatilityShield.adjustCR(rawCR, dampeningFactor);
+        return shieldedCR;
     }
 
     /// @notice Reverts if user's Health Factor drops below the liquidation threshold
@@ -351,7 +353,7 @@ contract MTKEngine is ReentrancyGuard{
 
     function _validateBasketPrice(uint256 price) internal pure {
         require (MIN_BASKETPRICE * PRECISION <=price , "basket price is too low");
-        require( MAX_BASKETPRICE * PRECISION <=price , "basket price is too high");
+        require( MAX_BASKETPRICE * PRECISION >=price , "basket price is too high");
     }
 
     

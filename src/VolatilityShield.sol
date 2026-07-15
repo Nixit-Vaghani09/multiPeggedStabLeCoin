@@ -31,7 +31,6 @@ contract VolatilityShield is Ownable {
     event AlphaUpdated(uint256 alphaSensitivity);
     event MintCapUpdated(uint256 mintCapBps);
     event MaxStalenessUpdated(uint256 maxStaleness);
-    event PythConfigUpdated(address pythAddress, bytes32 pythPriceId);
 
     // ──────────────────────────────────────────────
     //  Types
@@ -51,13 +50,9 @@ contract VolatilityShield is Ownable {
     //  State
     // ──────────────────────────────────────────────
 
-    /// @notice The Pyth oracle contract
-    IPyth public pyth;
     HelperConfig internal helperConfig;
 
-    /// @notice The Pyth price feed ID to monitor (e.g. ETH/USD)
-    bytes32 public pythPriceId;
-
+    
     /// @notice Volatility index (bps) below which volatility is classified as LOW
     /// @dev Default: 200 bps = 2% of price
     uint256 public lowVolThreshold = 200;
@@ -83,6 +78,9 @@ contract VolatilityShield is Ownable {
     /// @dev Precision constant for 18-decimal math
     uint256 private constant PRECISION = 1e18;
 
+    uint256 private constant MIN_CR = 1e18;
+    uint256 private constant MAX_CR = 5e18;
+
     function getPrecision() external pure returns (uint256) {
         return PRECISION;
     }
@@ -92,12 +90,11 @@ contract VolatilityShield is Ownable {
     // ──────────────────────────────────────────────
 
     /// @param _helperConfig The HelperConfig contract address
-    /// @param _pythAddress The on-chain Pyth contract address
-    constructor(address _helperConfig, address _pythAddress) Ownable(msg.sender) {
-        if (_helperConfig == address(0) || _pythAddress == address(0))
+    constructor(address _helperConfig) Ownable(msg.sender) {
+        if (_helperConfig == address(0) )
             revert VolatilityShield__ZeroAddress();
         helperConfig = HelperConfig(_helperConfig);
-        pyth = IPyth(_pythAddress);
+        
         
     }
 
@@ -108,12 +105,13 @@ contract VolatilityShield is Ownable {
     /// @notice Compute the system-wide volatility index (worst-case across all collaterals)
     function getSystemVolatilityIndex(uint256 chainId) public view returns (uint256 V, VolatilityBand band) {
         address[] memory collaterals = helperConfig.getEnabledCollaterals(chainId);
+        IPyth _pyth = IPyth(helperConfig.getPythAddress(chainId));
         uint256 maxV = 0;
         for (uint256 i = 0; i < collaterals.length; i++) {
             if (!helperConfig.getCollateralAllowed(chainId, collaterals[i])) continue;
 
             bytes32 pythId = helperConfig.getPythPriceId(collaterals[i], chainId);
-            PythStructs.Price memory p = pyth.getPriceNoOlderThan(pythId, maxStaleness);
+            PythStructs.Price memory p = _pyth.getPriceNoOlderThan(pythId, maxStaleness);
 
             if (p.price == 0) continue;
 
@@ -137,7 +135,8 @@ contract VolatilityShield is Ownable {
     /// @return band The volatility classification (LOW, MEDIUM, HIGH)
     function getVolatilityIndex(uint256 chainId, address collateral) public view returns (uint256 V, VolatilityBand band) {
         bytes32 _pythPriceId = helperConfig.getPythPriceId(collateral, chainId);
-        PythStructs.Price memory pythPrice = pyth.getPriceNoOlderThan(_pythPriceId, maxStaleness);
+        IPyth _pyth = IPyth(helperConfig.getPythAddress(chainId));
+        PythStructs.Price memory pythPrice = _pyth.getPriceNoOlderThan(_pythPriceId, maxStaleness);
 
         if (pythPrice.price <= 0) revert VolatilityShield__InvalidPrice();
 
@@ -214,6 +213,20 @@ contract VolatilityShield is Ownable {
         }
     }
 
+    function adjustCR(uint256 rawCR, uint256 dampeningFactor) external pure returns (uint256) {
+        // Example: reduce CR if volatilityFactor > 1e18 (scaled to 18 decimals)
+        uint256 adjusted = (rawCR * dampeningFactor) / PRECISION;
+
+        
+        if (adjusted < MIN_CR) {
+            adjusted = MIN_CR;
+        } else if (adjusted > MAX_CR) {
+            adjusted = MAX_CR;
+        }
+
+        return adjusted;
+    }
+
     /// @notice Check whether a mint of `mintAmount` is allowed given current volatility
     /// @dev During HIGH volatility, mints are capped at `mintCapBps` of `currentTotalSupply`.
     /// @param chainId The chain ID
@@ -273,13 +286,5 @@ contract VolatilityShield is Ownable {
         emit MaxStalenessUpdated(_maxStaleness);
     }
 
-    /// @notice Update the Pyth oracle address and price feed ID
-    /// @param _pythAddress New Pyth contract address
-    /// @param _pythPriceId New Pyth price feed ID
-    function setPythConfig(address _pythAddress, bytes32 _pythPriceId) external onlyOwner {
-        if (_pythAddress == address(0)) revert VolatilityShield__ZeroAddress();
-        pyth = IPyth(_pythAddress);
-        pythPriceId = _pythPriceId;
-        emit PythConfigUpdated(_pythAddress, _pythPriceId);
-    }
+    
 }

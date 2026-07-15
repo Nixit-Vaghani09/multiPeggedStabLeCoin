@@ -33,9 +33,9 @@ contract BasketPrice is Ownable {
         return PRECISION;
     }
 
-    constructor(address _helperConfig, address _pythAddress) Ownable(msg.sender) {
+    constructor(address _helperConfig,address _volatilityShield) Ownable(msg.sender) {
         helperConfig = HelperConfig(_helperConfig);
-        volatilityShield = new VolatilityShield(_helperConfig, _pythAddress);
+        volatilityShield = VolatilityShield(_volatilityShield);
     }
 
     /// @notice Mapping of chainId -> collateral address -> weight
