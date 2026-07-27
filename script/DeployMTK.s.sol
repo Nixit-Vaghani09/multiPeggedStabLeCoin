@@ -19,6 +19,10 @@ contract DeployMTK is Script {
         MTKEngine mtkEngine =
             new MTKEngine(address(basket), address(mtk), address(helperConfig), address(volatilityShield));
 
+        mtk.transferOwnership(address(mtkEngine));
+        basket.transferOwnership(address(mtkEngine));
+        volatilityShield.transferOwnership(address(mtkEngine));
+        helperConfig.transferOwnership(address(mtkEngine));
         vm.stopBroadcast();
         return (mtk, mtkEngine, basket, volatilityShield, helperConfig);
     }
