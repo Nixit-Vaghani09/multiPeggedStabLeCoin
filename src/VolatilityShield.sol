@@ -1,5 +1,31 @@
+// Layout of Contract:
+// version
+// imports
+// errors
+// interfaces, libraries, contracts
+// Type declarations
+// State variables
+// Events
+// Modifiers
+// Functions
+
+// Layout of Functions:
+// constructor
+// receive function (if exists)
+// fallback function (if exists)
+// external
+// public
+// internal
+// private
+// internal & private view & pure functions
+// external & public view & pure functions
+
 //SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
+
+//////////////////
+//   imports    //
+//////////////////
 
 import {IPyth} from "@pythnetwork/pyth-sdk-solidity/IPyth.sol";
 import {PythStructs} from "@pythnetwork/pyth-sdk-solidity/PythStructs.sol";
@@ -13,27 +39,27 @@ import {HelperConfig} from "script/HelperConfig.s.sol";
 /// @dev All threshold math uses basis points (10000 = 100%). Volatility index V is
 ///      computed as (conf * 10000) / |price|, giving a bps ratio of confidence to price.
 contract VolatilityShield is Ownable {
-    // ──────────────────────────────────────────────
-    //  Errors
-    // ──────────────────────────────────────────────
+    ////////////////////////////////
+    //           Errors           //
+    ////////////////////////////////
 
     error VolatilityShield__InvalidThresholds();
     error VolatilityShield__ZeroAddress();
     error VolatilityShield__StalePrice();
     error VolatilityShield__InvalidPrice();
 
-    // ──────────────────────────────────────────────
-    //  Events
-    // ──────────────────────────────────────────────
+    ///////////////////////
+    //      Events       //
+    ///////////////////////
 
     event ThresholdsUpdated(uint256 lowVolThreshold, uint256 highVolThreshold);
     event AlphaUpdated(uint256 alphaSensitivity);
     event MintCapUpdated(uint256 mintCapBps);
     event MaxStalenessUpdated(uint256 maxStaleness);
 
-    // ──────────────────────────────────────────────
-    //  Types
-    // ──────────────────────────────────────────────
+    /////////////////////////
+    //        Types        //
+    /////////////////////////
 
     /// @notice Volatility classification bands
     enum VolatilityBand {
@@ -42,11 +68,11 @@ contract VolatilityShield is Ownable {
         HIGH // Restrict minting
     }
 
-    // ──────────────────────────────────────────────
-    //  State
-    // ──────────────────────────────────────────────
-
     HelperConfig internal helperConfig;
+
+    ///////////////////////
+    //      States       //
+    ///////////////////////
 
     /// @notice Volatility index (bps) below which volatility is classified as LOW
     /// @dev Default: 200 bps = 2% of price
@@ -76,14 +102,13 @@ contract VolatilityShield is Ownable {
     uint256 private constant MIN_CR = 1e18;
     uint256 private constant MAX_CR = 5e18;
 
-    function getPrecision() external pure returns (uint256) {
-        return PRECISION;
-    }
+    ////////////////////////////////////
+    //            functions           //
+    ////////////////////////////////////
 
-    // ──────────────────────────────────────────────
-    //  Constructor
-    // ──────────────────────────────────────────────
-
+    ///////////////////////////
+    //      Constructor      //
+    ///////////////////////////
     /// @param _helperConfig The HelperConfig contract address
     constructor(address _helperConfig) Ownable(msg.sender) {
         if (_helperConfig == address(0)) {
@@ -92,177 +117,9 @@ contract VolatilityShield is Ownable {
         helperConfig = HelperConfig(_helperConfig);
     }
 
-    // ──────────────────────────────────────────────
-    //  Core View Functions
-    // ──────────────────────────────────────────────
-
-    /// @notice Compute the system-wide volatility index (worst-case across all collaterals)
-    function getSystemVolatilityIndex(uint256 chainId) public view returns (uint256 V, VolatilityBand band) {
-        address[] memory collaterals = helperConfig.getEnabledCollaterals(chainId);
-        IPyth _pyth = IPyth(helperConfig.getPythAddress(chainId));
-        uint256 maxV = 0;
-        for (uint256 i = 0; i < collaterals.length; i++) {
-            if (!helperConfig.getCollateralAllowed(chainId, collaterals[i])) continue;
-
-            bytes32 pythId = helperConfig.getPythPriceId(collaterals[i], chainId);
-            PythStructs.Price memory p = _pyth.getPriceNoOlderThan(pythId, maxStaleness);
-
-            if (p.price == 0) continue;
-
-            uint256 absPrice =
-                p.price < 0 ? uint256(uint64(uint256(-int256(p.price)))) : uint256(uint64(uint256(int256(p.price))));
-            uint256 conf = uint256(p.conf);
-
-            uint256 volIndex = (conf * BPS) / absPrice;
-            if (volIndex > maxV) maxV = volIndex;
-        }
-
-        V = maxV;
-        if (V < lowVolThreshold) band = VolatilityBand.LOW;
-        else if (V < highVolThreshold) band = VolatilityBand.MEDIUM;
-        else band = VolatilityBand.HIGH;
-    }
-
-    /// @notice Compute the volatility index for a specific collateral and classify into a band
-    /// @return V The volatility index in basis points (conf * 10000 / |price|)
-    /// @return band The volatility classification (LOW, MEDIUM, HIGH)
-    function getVolatilityIndex(uint256 chainId, address collateral)
-        public
-        view
-        returns (uint256 V, VolatilityBand band)
-    {
-        bytes32 _pythPriceId = helperConfig.getPythPriceId(collateral, chainId);
-        IPyth _pyth = IPyth(helperConfig.getPythAddress(chainId));
-        PythStructs.Price memory pythPrice = _pyth.getPriceNoOlderThan(_pythPriceId, maxStaleness);
-
-        if (pythPrice.price <= 0) revert VolatilityShield__InvalidPrice();
-
-        uint256 absPrice = uint256(uint64(pythPrice.price));
-        uint256 conf = uint256(pythPrice.conf);
-
-        // V = (conf * 10000) / |price|  → result in basis points
-        V = (conf * BPS) / absPrice;
-
-        if (V < lowVolThreshold) {
-            band = VolatilityBand.LOW;
-        } else if (V < highVolThreshold) {
-            band = VolatilityBand.MEDIUM;
-        } else {
-            band = VolatilityBand.HIGH;
-        }
-    }
-
-    /// @notice Calculate effective collateral ratio with volatility scaling (per-collateral)
-    /// @dev CR_effective = CR_base × (1 + α · V / 10000)
-    /// @param CRbase The base collateral ratio in 1e18 (e.g. 1e18 = 100%)
-    /// @param collateral The collateral token address
-    /// @param chainId The chain ID
-    /// @return CReffective The volatility-adjusted collateral ratio in 1e18
-    function getEffectiveCollateralRatio(uint256 CRbase, address collateral, uint256 chainId)
-        external
-        view
-        returns (uint256 CReffective)
-    {
-        (uint256 V,) = getVolatilityIndex(chainId, collateral);
-
-        // scalingFactor = 1 + (alpha * V) / (BPS * BPS)
-        // In 1e18: PRECISION + (alphaSensitivity * V * PRECISION) / (BPS * BPS)
-        uint256 scalingNumerator = alphaSensitivity * V * PRECISION;
-        uint256 scalingFactor = PRECISION + (scalingNumerator / (BPS * BPS));
-
-        CReffective = (CRbase * scalingFactor) / PRECISION;
-    }
-
-    /// @notice Calculate effective collateral ratio with volatility scaling (system-wide)
-    function getSystemEffectiveCollateralRatio(uint256 chainId, uint256 CRbase)
-        external
-        view
-        returns (uint256 CReffective)
-    {
-        (uint256 V,) = getSystemVolatilityIndex(chainId);
-        // scalingFactor = 1 + (alpha * V) / (BPS * BPS)
-        // In 1e18: PRECISION + (alphaSensitivity * V * PRECISION) / (BPS * BPS)
-        uint256 scalingNumerator = alphaSensitivity * V * PRECISION;
-        uint256 scalingFactor = PRECISION + (scalingNumerator / (BPS * BPS));
-
-        CReffective = (CRbase * scalingFactor) / PRECISION;
-    }
-
-    /// @notice Get the dampening factor f(V) for rebase supply adjustments
-    /// @dev Returns a multiplier in 1e18 precision:
-    ///      LOW    → 1.0  (1e18)   — no dampening
-    ///      MEDIUM → 0.5  (5e17)   — 50% dampening
-    ///      HIGH   → 0.1  (1e17)   — 90% dampening
-    /// @return factor The dampening multiplier in 1e18
-    function getDampeningFactor(uint256 chainId, address collateral) external view returns (uint256 factor) {
-        (, VolatilityBand band) = getVolatilityIndex(chainId, collateral);
-
-        if (band == VolatilityBand.LOW) {
-            factor = PRECISION; // 1.0
-        } else if (band == VolatilityBand.MEDIUM) {
-            factor = PRECISION / 2; // 0.5
-        } else {
-            factor = PRECISION / 10; // 0.1
-        }
-    }
-
-    /// @notice Get the system-wide dampening factor (worst-case across all collaterals)
-    function getSystemDampeningFactor(uint256 chainId) external view returns (uint256 factor) {
-        (, VolatilityBand band) = getSystemVolatilityIndex(chainId);
-        if (band == VolatilityBand.LOW) {
-            factor = PRECISION;
-        } else if (band == VolatilityBand.MEDIUM) {
-            factor = PRECISION / 2;
-        } else {
-            factor = PRECISION / 10;
-        }
-    }
-
-    function adjustCR(uint256 rawCR, uint256 dampeningFactor) external pure returns (uint256) {
-        // Example: reduce CR if volatilityFactor > 1e18 (scaled to 18 decimals)
-        uint256 adjusted = (rawCR * dampeningFactor) / PRECISION;
-
-        if (adjusted < MIN_CR) {
-            adjusted = MIN_CR;
-        } else if (adjusted > MAX_CR) {
-            adjusted = MAX_CR;
-        }
-
-        return adjusted;
-    }
-
-    /// @notice Check whether a mint of `mintAmount` is allowed given current volatility
-    /// @dev During HIGH volatility, mints are capped at `mintCapBps` of `currentTotalSupply`.
-    /// @param chainId The chain ID
-    /// @param collateral The collateral token address
-    /// @param mintAmount The proposed mint amount
-    /// @param currentTotalSupply The current total supply of the stablecoin
-    /// @return allowed True if the mint is permitted
-    function checkMintAllowed(uint256 chainId, address collateral, uint256 mintAmount, uint256 currentTotalSupply)
-        external
-        view
-        returns (bool allowed)
-    {
-        (, VolatilityBand band) = getVolatilityIndex(chainId, collateral);
-
-        if (band != VolatilityBand.HIGH) {
-            return true;
-        }
-
-        // During HIGH volatility, allow bootstrapping (totalSupply == 0)
-        if (currentTotalSupply == 0) {
-            return true;
-        }
-
-        // Cap: mintAmount <= currentTotalSupply * mintCapBps / BPS
-        uint256 maxMint = (currentTotalSupply * mintCapBps) / BPS;
-        return mintAmount <= maxMint;
-    }
-
-    // ──────────────────────────────────────────────
-    //  Owner Configuration
-    // ──────────────────────────────────────────────
-
+    ///////////////////////////////////
+    //       external functions      //
+    ///////////////////////////////////
     /// @notice Update volatility band thresholds
     /// @param _lowVolThreshold New low volatility threshold (bps)
     /// @param _highVolThreshold New high volatility threshold (bps)
@@ -292,5 +149,211 @@ contract VolatilityShield is Ownable {
     function setMaxStaleness(uint256 _maxStaleness) external onlyOwner {
         maxStaleness = _maxStaleness;
         emit MaxStalenessUpdated(_maxStaleness);
+    }
+
+    function getPrecision() external pure returns (uint256) {
+        return PRECISION;
+    }
+
+    ///////////////////////////////////
+    //        public functions       //
+    ///////////////////////////////////
+    /// @notice Compute the system-wide volatility index (worst-case across all collaterals)
+    function getSystemVolatilityIndex(uint256 chainId) public view returns (uint256, VolatilityBand) {
+        return _getSystemVolatilityIndex(chainId);
+    }
+
+    /// @notice Compute the volatility index for a specific collateral and classify into a band
+    /// @return V The volatility index in basis points (conf * 10000 / |price|)
+    /// @return band The volatility classification (LOW, MEDIUM, HIGH)
+    function getVolatilityIndex(uint256 chainId, address collateral) public view returns (uint256, VolatilityBand) {
+        return _getVolatilityIndex(chainId, collateral);
+    }
+
+    /// @notice Calculate effective collateral ratio with volatility scaling (per-collateral)
+    /// @dev CR_effective = CR_base × (1 + α · V / 10000)
+    /// @param CRbase The base collateral ratio in 1e18 (e.g. 1e18 = 100%)
+    /// @param collateral The collateral token address
+    /// @param chainId The chain ID
+    /// @return CReffective The volatility-adjusted collateral ratio in 1e18
+    function getEffectiveCollateralRatio(uint256 CRbase, address collateral, uint256 chainId)
+        public
+        view
+        returns (uint256)
+    {
+        return _getEffectiveCollateralRatio(CRbase, collateral, chainId);
+    }
+
+    /// @notice Calculate effective collateral ratio with volatility scaling (system-wide)
+    function getSystemEffectiveCollateralRatio(uint256 chainId, uint256 CRbase) public view returns (uint256) {
+        return _getSystemEffectiveCollateralRatio(chainId, CRbase);
+    }
+
+    /// @notice Get the dampening factor f(V) for rebase supply adjustments
+    /// @dev Returns a multiplier in 1e18 precision:
+    ///      LOW    → 1.0  (1e18)   — no dampening
+    ///      MEDIUM → 0.5  (5e17)   — 50% dampening
+    ///      HIGH   → 0.1  (1e17)   — 90% dampening
+    /// @return factor The dampening multiplier in 1e18
+    function getDampeningFactor(uint256 chainId, address collateral) public view returns (uint256) {
+        return _getDampeningFactor(chainId, collateral);
+    }
+
+    /// @notice Get the system-wide dampening factor (worst-case across all collaterals)
+    function getSystemDampeningFactor(uint256 chainId) public view returns (uint256) {
+        return _getSystemDampeningFactor(chainId);
+    }
+
+    function adjustCR(uint256 rawCR, uint256 dampeningFactor) public pure returns (uint256) {
+        return _adjustCR(rawCR, dampeningFactor);
+    }
+
+    /// @notice Check whether a mint of `mintAmount` is allowed given current volatility
+    /// @dev During HIGH volatility, mints are capped at `mintCapBps` of `currentTotalSupply`.
+    /// @param chainId The chain ID
+    /// @param collateral The collateral token address
+    /// @param mintAmount The proposed mint amount
+    /// @param currentTotalSupply The current total supply of the stablecoin
+    /// @return allowed True if the mint is permitted
+    function checkMintAllowed(uint256 chainId, address collateral, uint256 mintAmount, uint256 currentTotalSupply)
+        public
+        view
+        returns (bool allowed)
+    {
+        (, VolatilityBand band) = getVolatilityIndex(chainId, collateral);
+
+        if (band != VolatilityBand.HIGH) {
+            return true;
+        }
+
+        // During HIGH volatility, allow bootstrapping (totalSupply == 0)
+        if (currentTotalSupply == 0) {
+            return true;
+        }
+
+        // Cap: mintAmount <= currentTotalSupply * mintCapBps / BPS
+        uint256 maxMint = (currentTotalSupply * mintCapBps) / BPS;
+        return mintAmount <= maxMint;
+    }
+
+    /////////////////////////////////////////////
+    //       internal , private functions      //
+    /////////////////////////////////////////////
+
+    function _getSystemVolatilityIndex(uint256 chainId) private view returns (uint256 V, VolatilityBand band) {
+        address[] memory collaterals = helperConfig.getEnabledCollaterals(chainId);
+        IPyth _pyth = IPyth(helperConfig.getPythAddress(chainId));
+        uint256 maxV = 0;
+        for (uint256 i = 0; i < collaterals.length; i++) {
+            if (!helperConfig.getCollateralAllowed(chainId, collaterals[i])) continue;
+
+            bytes32 pythId = helperConfig.getPythPriceId(collaterals[i], chainId);
+            PythStructs.Price memory p = _pyth.getPriceNoOlderThan(pythId, maxStaleness);
+
+            if (p.price == 0) continue;
+
+            uint256 absPrice =
+                p.price < 0 ? uint256(uint64(uint256(-int256(p.price)))) : uint256(uint64(uint256(int256(p.price))));
+            uint256 conf = uint256(p.conf);
+
+            uint256 volIndex = (conf * BPS) / absPrice;
+            if (volIndex > maxV) maxV = volIndex;
+        }
+
+        V = maxV;
+        if (V < lowVolThreshold) band = VolatilityBand.LOW;
+        else if (V < highVolThreshold) band = VolatilityBand.MEDIUM;
+        else band = VolatilityBand.HIGH;
+    }
+
+    function _getVolatilityIndex(uint256 chainId, address collateral)
+        private
+        view
+        returns (uint256 V, VolatilityBand band)
+    {
+        bytes32 _pythPriceId = helperConfig.getPythPriceId(collateral, chainId);
+        IPyth _pyth = IPyth(helperConfig.getPythAddress(chainId));
+        PythStructs.Price memory pythPrice = _pyth.getPriceNoOlderThan(_pythPriceId, maxStaleness);
+
+        if (pythPrice.price <= 0) revert VolatilityShield__InvalidPrice();
+
+        uint256 absPrice = uint256(uint64(pythPrice.price));
+        uint256 conf = uint256(pythPrice.conf);
+
+        // V = (conf * 10000) / |price|  → result in basis points
+        V = (conf * BPS) / absPrice;
+
+        if (V < lowVolThreshold) {
+            band = VolatilityBand.LOW;
+        } else if (V < highVolThreshold) {
+            band = VolatilityBand.MEDIUM;
+        } else {
+            band = VolatilityBand.HIGH;
+        }
+    }
+
+    function _getEffectiveCollateralRatio(uint256 CRbase, address collateral, uint256 chainId)
+        internal
+        view
+        returns (uint256 CReffective)
+    {
+        (uint256 V,) = getVolatilityIndex(chainId, collateral);
+
+        // scalingFactor = 1 + (alpha * V) / (BPS * BPS)
+        // In 1e18: PRECISION + (alphaSensitivity * V * PRECISION) / (BPS * BPS)
+        uint256 scalingNumerator = alphaSensitivity * V * PRECISION;
+        uint256 scalingFactor = PRECISION + (scalingNumerator / (BPS * BPS));
+
+        CReffective = (CRbase * scalingFactor) / PRECISION;
+    }
+
+    function _getSystemEffectiveCollateralRatio(uint256 chainId, uint256 CRbase)
+        internal
+        view
+        returns (uint256 CReffective)
+    {
+        (uint256 V,) = getSystemVolatilityIndex(chainId);
+        // scalingFactor = 1 + (alpha * V) / (BPS * BPS)
+        // In 1e18: PRECISION + (alphaSensitivity * V * PRECISION) / (BPS * BPS)
+        uint256 scalingNumerator = alphaSensitivity * V * PRECISION;
+        uint256 scalingFactor = PRECISION + (scalingNumerator / (BPS * BPS));
+
+        CReffective = (CRbase * scalingFactor) / PRECISION;
+    }
+
+    function _getDampeningFactor(uint256 chainId, address collateral) internal view returns (uint256 factor) {
+        (, VolatilityBand band) = getVolatilityIndex(chainId, collateral);
+
+        if (band == VolatilityBand.LOW) {
+            factor = PRECISION; // 1.0
+        } else if (band == VolatilityBand.MEDIUM) {
+            factor = PRECISION / 2; // 0.5
+        } else {
+            factor = PRECISION / 10; // 0.1
+        }
+    }
+
+    function _getSystemDampeningFactor(uint256 chainId) internal view returns (uint256 factor) {
+        (, VolatilityBand band) = getSystemVolatilityIndex(chainId);
+        if (band == VolatilityBand.LOW) {
+            factor = PRECISION;
+        } else if (band == VolatilityBand.MEDIUM) {
+            factor = PRECISION / 2;
+        } else {
+            factor = PRECISION / 10;
+        }
+    }
+
+    function _adjustCR(uint256 rawCR, uint256 dampeningFactor) internal pure returns (uint256) {
+        // Example: reduce CR if volatilityFactor > 1e18 (scaled to 18 decimals)
+        uint256 adjusted = (rawCR * dampeningFactor) / PRECISION;
+
+        if (adjusted < MIN_CR) {
+            adjusted = MIN_CR;
+        } else if (adjusted > MAX_CR) {
+            adjusted = MAX_CR;
+        }
+
+        return adjusted;
     }
 }
